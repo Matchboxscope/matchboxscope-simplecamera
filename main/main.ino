@@ -5,7 +5,7 @@
 #include <DNSServer.h>
 #include <WiFiUdp.h>
 #include <ArduinoOTA.h>
-#include "src/parsebytes.h"
+#include "parsebytes.h"
 #include "time.h"
 #include <ESPmDNS.h>
 
@@ -49,7 +49,7 @@
 #endif
 
 // Upstream version string
-#include "src/version.h"
+#include "version.h"
 
 // Pin Mappings
 #include "camera_pins.h"
