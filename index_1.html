@@ -1,0 +1,8 @@
+                    <td align="center" style="height: 31px; width: 24.9576%;"><span
+                            style="font-family: arial, helvetica, sans-serif;">
+                            <input type="range" id="lens" min="0"
+                                max="255" value="0"
+                                onchange="try{fetch(document.location.origin+'/control?var=lens&amp;val='+this.value);}catch(e){}"
+                                oninput="document.getElementById('valLens').innerHTML = this.value" /></span>
+                        <label id="valLens"></label>
+                    </td>

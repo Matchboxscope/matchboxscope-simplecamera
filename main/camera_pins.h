@@ -27,6 +27,7 @@
   #define HREF_GPIO_NUM     23
   #define PCLK_GPIO_NUM     22
   #define LED_PIN           33 // Status led
+  #define PWM_PIN           12
   #define LED_ON           LOW // - Pin is inverted.
   #define LED_OFF         HIGH //
   #define LAMP_PIN           4 // LED FloodLamp.

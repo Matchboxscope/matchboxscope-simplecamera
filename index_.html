@@ -1,8 +1,3 @@
-/*
- * primary HTML for the OV2640 camera module
- */
-
-const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
@@ -55,12 +50,12 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <input type="range" id="pwm" min="0" max="100" value="0" class="default-action">
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
               </div>
-              <div class="input-group hidden" id="timelapseInterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">
+              <div class="input-group hidden" id="timelapseinterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">
                 <label for="timelapseInterval">timelapseInterval</label>
                 <div class="range-min">Off</div>
                 <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action"
-                oninput="document.getElementById('timelapseInterval').innerHTML = this.value" />
-                <label id="valLens"></label>
+                      oninput="document.getElementById('timelapseInterval').innerHTML = this.value" /></span>
+                    <label id="valLens"></label>
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
               </div>
               <div class="input-group" id="framesize-group" title="Camera resolution&#013;Higher resolutions will result in lower framerates">
@@ -317,7 +312,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const lampGroup = document.getElementById('lamp-group')
     const autolampGroup = document.getElementById('autolamp-group')
     const pwmGroup = document.getElementById('pwm-group')
-    const timelapseintervalGroup = document.getElementById('timelapseInterval-group')
+    const timelapseintervalGroup = document.getElementById('timelapse-group')
     const streamGroup = document.getElementById('stream-group')
     const camName = document.getElementById('cam_name')
     const codeVer = document.getElementById('code_ver')
@@ -389,13 +384,14 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
             show(lampGroup)
             show(autolampGroup)
           }
-          } else if(el.id === "pwm"){
+          } 
+          else if(el.id === "pwm"){
           if (value == -1) {
             hide(pwmGroup)
           } else {
             show(pwmGroup)
-          }
-          } else if(el.id === "timelapseInterval"){
+          }}
+          else if(el.id === "timelapseinterval"){
           if (value == -1) {
             hide(timelapseintervalGroup)
           } else {
@@ -665,6 +661,4 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
 
   })
   </script>
-</html>)=====";
-
-size_t index_ov2640_html_len = sizeof(index_ov2640_html)-1;
+</html>
