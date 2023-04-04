@@ -56,14 +56,33 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
               </div>
               <div class="input-group hidden" id="timelapseInterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">
-                <label for="timelapseInterval">timelapseInterval</label>
-                <div class="range-min">Off</div>
-                <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action"
-                oninput="document.getElementById('timelapseInterval').innerHTML = this.value" />
-                <label id="valLens"></label>
-                <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
-              </div>
-              <div class="input-group" id="framesize-group" title="Camera resolution&#013;Higher resolutions will result in lower framerates">
+              <label for="timelapseInterval">Timelapse Interval (s)</label>
+              <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action"
+                    oninput="document.getElementById('valTimelapse').innerHTML = this.value" />
+                    <div <label id="valTimelapse"></label></div>
+            </div>
+              <div class="input-group hidden" id="anglerfish-group" title="Anglerfish Settings Set it to enter the deep-sleep mode with preset time value for periodic image capturing.">
+                <label for="anglerfishSlider">anglerfishSlider</label>
+                <p>Move the slider to access the deepsleep mode:</p>
+                <input type="range" min="0" max="100" value="0" id="anglerfishSlider">
+                <br><br>
+                <a href="d" id="anglerfishLink" style="display: none;">Click here to access the link</a>
+                <script>
+                  const anglerfishSlider = document.getElementById("anglerfishSlider");
+                  const anglerfishLink = document.getElementById("anglerfishLink");
+                  anglerfishSlider.addEventListener("input", function() {
+                    if (anglerfishSlider.value == 100) {
+                      anglerfishLink.style.display = "block";
+                      var baseHost = document.location.origin;
+                      anglerfishLink.href=`${baseHost}/anglerfishmode`;
+                      anglerfishLink.text = `Enter Anglerfish Mode (remove SD card to return to normal mode)`;
+                    } else {
+                      anglerfishLink.style.display = "none";
+                    }
+                  });
+                </script>                
+              </div>              
+                <div class="input-group" id="framesize-group" title="Camera resolution&#013;Higher resolutions will result in lower framerates">
                 <label for="framesize">Resolution</label>
                 <select id="framesize" class="default-action">
                   <option value="13">UXGA (1600x1200)</option>
@@ -318,6 +337,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const autolampGroup = document.getElementById('autolamp-group')
     const pwmGroup = document.getElementById('pwm-group')
     const timelapseintervalGroup = document.getElementById('timelapseInterval-group')
+    const anglerfishGroup = document.getElementById('anglerfish-group')
     const streamGroup = document.getElementById('stream-group')
     const camName = document.getElementById('cam_name')
     const codeVer = document.getElementById('code_ver')
@@ -395,13 +415,22 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
           } else {
             show(pwmGroup)
           }
-          } else if(el.id === "timelapseInterval"){
+          } 
+          else if(el.id === "timelapseInterval"){
           if (value == -1) {
             hide(timelapseintervalGroup)
           } else {
             show(timelapseintervalGroup)
           }
-        } else if(el.id === "cam_name"){
+        }
+          else if(el.id === "anglerfishSlider"){
+            if (value == -1){
+              hide(anglerfishGroup)
+            } else {
+              show(anglerfishGroup)
+            }
+          }
+         else if(el.id === "cam_name"){
           camName.innerHTML = value;
           window.document.title = value;
           console.log('Name set to: ' + value);
@@ -553,6 +582,13 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       view.src = `${baseHost}/capture?_cb=${Date.now()}`;
       view.scrollIntoView(false);
       show(viewContainer);
+      fetch(`${baseHost}/uploadgithub`).then(function(response) {
+      return response.json();
+      }).then(function(data) {
+        console.log(data);
+      }).catch(function(err) {
+        console.log('Fetch Error :-S', err);
+      });
     }
 
     closeButton.onclick = () => {

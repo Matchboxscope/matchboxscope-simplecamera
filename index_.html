@@ -1,3 +1,4 @@
+<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
@@ -54,11 +55,11 @@
                 <label for="timelapseInterval">timelapseInterval</label>
                 <div class="range-min">Off</div>
                 <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action"
-                      oninput="document.getElementById('timelapseInterval').innerHTML = this.value" /></span>
-                    <label id="valLens"></label>
+                      oninput="document.getElementById('valTimelapse').innerHTML = this.value" /></span>
+                    <label id="valTimelapse"></label>
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
               </div>
-              <div class="input-group" id="framesize-group" title="Camera resolution&#013;Higher resolutions will result in lower framerates">
+                <div class="input-group" id="framesize-group" title="Camera resolution&#013;Higher resolutions will result in lower framerates">
                 <label for="framesize">Resolution</label>
                 <select id="framesize" class="default-action">
                   <option value="13">UXGA (1600x1200)</option>
@@ -312,7 +313,7 @@
     const lampGroup = document.getElementById('lamp-group')
     const autolampGroup = document.getElementById('autolamp-group')
     const pwmGroup = document.getElementById('pwm-group')
-    const timelapseintervalGroup = document.getElementById('timelapse-group')
+    const timelapseintervalGroup = document.getElementById('timelapseInterval-group')
     const streamGroup = document.getElementById('stream-group')
     const camName = document.getElementById('cam_name')
     const codeVer = document.getElementById('code_ver')
@@ -384,14 +385,13 @@
             show(lampGroup)
             show(autolampGroup)
           }
-          } 
-          else if(el.id === "pwm"){
+          } else if(el.id === "pwm"){
           if (value == -1) {
             hide(pwmGroup)
           } else {
             show(pwmGroup)
-          }}
-          else if(el.id === "timelapseinterval"){
+          }
+          } else if(el.id === "timelapseInterval"){
           if (value == -1) {
             hide(timelapseintervalGroup)
           } else {
@@ -548,6 +548,16 @@
       stopStream();
       view.src = `${baseHost}/capture?_cb=${Date.now()}`;
       view.scrollIntoView(false);
+      try {     
+        const response = await fetch(`${baseHost}/uploadgithub`;, {
+          method: 'get',
+          body: {
+          }
+        });
+        console.log('Completed!', response);
+      } catch(err) {
+        console.error(`Error: ${err}`);
+      }      
       show(viewContainer);
     }
 
