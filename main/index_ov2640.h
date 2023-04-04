@@ -62,11 +62,11 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                     <div <label id="valTimelapse"></label></div>
             </div>
               <div class="input-group hidden" id="anglerfish-group" title="Anglerfish Settings Set it to enter the deep-sleep mode with preset time value for periodic image capturing.">
-                <label for="anglerfishSlider">anglerfishSlider</label>
-                <p>Move the slider to access the deepsleep mode:</p>
-                <input type="range" min="0" max="100" value="0" id="anglerfishSlider">
-                <br><br>
-                <a href="d" id="anglerfishLink" style="display: none;">Click here to access the link</a>
+                
+                <label for="AnglerfishSettings">AnglerfishSettings</label>
+                <div class="range-min">No</div>
+                <input type="range" min="0" max="100" value="0" id="anglerfishSlider" class="default-action">
+                <div class="range-max"><a href="d" id="anglerfishLink" style="display: none;">Click here to access the link</a></div>
                 <script>
                   const anglerfishSlider = document.getElementById("anglerfishSlider");
                   const anglerfishLink = document.getElementById("anglerfishLink");

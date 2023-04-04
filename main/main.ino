@@ -140,8 +140,8 @@ int myRotation = 0;
 int minFrameTime = 0;
 
 // Timelapse
-uint64_t timelapseInterval = -1;
-static uint64_t t_old = 0;
+int timelapseInterval = -1;
+static uint64_t t_old = millis();
 bool sendToGithubFlag = false;
 
 // Illumination LAMP and status LED
@@ -906,7 +906,7 @@ void setup()
         Serial.println("SD Card Mount Failed");
         // FIXME: This should be indicated in the GUI
         sdInitialized = false;
-        //  device_pref.setIsTimelapse(false); // FIXME: if SD card is missing => streaming mode!
+        device_pref.setIsTimelapse(false); // FIXME: if SD card is missing => streaming mode!
         // FIXME: won't work since LEDC is not yet initiated blinkLed(5);
     }
     else
@@ -946,6 +946,7 @@ void setup()
     {
         ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
         ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
+        ledcWrite(pwmChannel, 50); // set default value to center so that focus or pump are in ground state
     }
     else
     {
@@ -978,7 +979,7 @@ void setup()
         Serial.read();
 
     // save image to github
-    sendToGithubFlag=true;
+    //sendToGithubFlag=true;
 }
 
 void acquireFocusStack(String filename, int stepSize=10, int stepMin=0, int stepMax=255){
@@ -992,11 +993,14 @@ void acquireFocusStack(String filename, int stepSize=10, int stepMin=0, int step
 
 void loop()
 {
+
     /*
      *  Just loop forever, reconnecting Wifi As necesscary in client mode
      * The stream and URI handler processes initiated by the startCameraServer() call at the
      * end of setup() will handle the camera and UI processing from now on.
      */
+
+    /*
     if (accesspoint)
     {
         // Accespoint is permanently up, so just loop, servicing the captive portal as needed
@@ -1048,20 +1052,20 @@ void loop()
             WifiSetup();
         }
     }
-
-    // Timelapse Imaging
+    */
+       // Timelapse Imaging
     // Perform timelapse imaging
-    if (timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
+    timelapseInterval = device_pref.getTimelapseInterval();
+    if (timelapseInterval > -1 and ((millis() - t_old) > (1000 * timelapseInterval)))
     {
         // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
+        log_d("Time to save a new image", timelapseInterval);
         t_old = millis();
         uint32_t frame_index = device_pref.getFrameIndex() + 1;
-        bool imageSaved = false;
 
         // turns on lamp automatically
         // save to SD card if existent
-
-        bool isAcquireStack = true;
+        bool isAcquireStack = false; // FIXME: make this accessible through gui
         String filename = "/timelapse_image" + String(imagesServed);
         if (isAcquireStack)
             { // FIXME: We could have a switch in the GUI for this settig
@@ -1081,6 +1085,12 @@ void loop()
         // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
         device_pref.setFrameIndex(frame_index);
     }
+
+    if (otaEnabled)
+        ArduinoOTA.handle();
+    handleSerial();
+
+
 }
 
 
@@ -1151,6 +1161,6 @@ void initAnglerfish(void){
   }
   else
   {
-    Serial.println("In refocusing mode. Connect to Wifi and go to 192.168.4.1enable once you're done with focusing.");
+    Serial.println("In refocusing mode. Connect to Wifi and go to 192.168.4.1 ");
   }
 }

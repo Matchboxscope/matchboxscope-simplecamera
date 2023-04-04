@@ -644,7 +644,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"cam_name\":\"%s\",", myName);
         p += sprintf(p, "\"code_ver\":\"%s\",", myVer);
         p += sprintf(p, "\"rotate\":\"%d\",", myRotation);
-        p += sprintf(p, "\"stream_url\":\"%s\"", streamURL);
+        p += sprintf(p, "\"stream_url\":\"%s\",", streamURL);
         p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
     }
     *p++ = '}';
@@ -993,11 +993,34 @@ void saveCapturedImageGithub()
 static esp_err_t uploadgithub_handler(httpd_req_t *req)
 {
     Serial.println("Sending upload page");
-    //saveCapturedImageGithub();
     sendToGithubFlag = true;
     Serial.println("Github Upload Requested");
     return 0;
 }
+
+static esp_err_t anglerfish_handler(httpd_req_t *req)
+{
+
+    Serial.println("Entering the Anglerfish mode");
+    for(int iFlash = 0; iFlash<10; iFlash++) flashLED(75);
+    Serial.println("Going into deepsleep mode");
+  
+    device_pref.setIsTimelapse(true);
+    static char json_response[1024];
+    char *p = json_response;
+    *p++ = '{';
+    p += sprintf(p, "You have enabled long-time timelpase - remove the SD card to wake up from deepsleep mode #Schneewittchen...");
+    *p++ = '}';
+    *p++ = 0;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_send(req, json_response, strlen(json_response));
+
+    SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
+    ESP.restart();
+    return 0;
+}
+
 
 static esp_err_t index_handler(httpd_req_t *req)
 {
@@ -1185,6 +1208,11 @@ void startCameraServer(int hPort, int sPort)
         .uri = "/uploadgithub",
         .method = HTTP_GET,
         .handler = uploadgithub_handler,
+        .user_ctx = NULL};
+    httpd_uri_t anglerfish_uri = {
+        .uri = "/anglerfishmode",
+        .method = HTTP_GET,
+        .handler = anglerfish_handler,
         .user_ctx = NULL};
 
     // Request Handlers; config.max_uri_handlers (above) must be >= the number of handlers
