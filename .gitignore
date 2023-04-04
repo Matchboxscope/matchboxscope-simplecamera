@@ -5,3 +5,4 @@ myconfig.h
 .gcc-flags.json
 .pio
 .vscode
+main/githubtoken.h

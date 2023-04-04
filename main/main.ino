@@ -407,7 +407,7 @@ void StartCamera()
          * these are defined in the esp headers here:
          * https://github.com/espressif/esp32-camera/blob/master/driver/include/sensor.h#L149
          */
-
+        
         // s->set_framesize(s, FRAMESIZE_SVGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
         // s->set_quality(s, val);       // 10 to 63
         // s->set_brightness(s, 0);      // -2 to 2
@@ -801,6 +801,10 @@ void setup()
         Serial.println("No Internal Filesystem, cannot load or save preferences");
     }
 
+
+    // before we start the WIFI - check if we are in deep-sleep/anglerfishmode
+    initAnglerfish();
+
     /*
      * Camera setup complete; initialise the rest of the hardware.
      */
@@ -977,6 +981,15 @@ void setup()
     sendToGithubFlag=true;
 }
 
+void acquireFocusStack(String filename, int stepSize=10, int stepMin=0, int stepMax=255){
+    String extension = ".jpg";
+    for (int iFocus = stepMin; iFocus < stepMax; iFocus+=stepSize){
+        String filename = filename + String(imagesServed) + "_z" + String(iFocus) + extension;
+        saveImage(filename, iFocus * 10);
+    }
+}
+
+
 void loop()
 {
     /*
@@ -1049,17 +1062,13 @@ void loop()
         // save to SD card if existent
 
         bool isAcquireStack = true;
+        String filename = "/timelapse_image" + String(imagesServed);
         if (isAcquireStack)
-        { // FIXME: We could have a switch in the GUI for this settig
+            { // FIXME: We could have a switch in the GUI for this settig
             // acquire a stack
             // FIXME: decide which method to use..
-            for (int iFocus = 0; iFocus < 10; iFocus++)
-            {
-                String filename = "/timelapse_focusstack_image" + String(imagesServed) + "_z" + String(iFocus * 10) + ".jpg";
-                saveImage(filename, iFocus * 10);
-                // switch off lens
-                setPWM(0); // save energy
-            }
+            imagesServed++;
+            acquireFocusStack(filename, 10);
         }
         else
         {
@@ -1072,4 +1081,76 @@ void loop()
         // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
         device_pref.setFrameIndex(frame_index);
     }
+}
+
+
+void initAnglerfish(void){
+
+  // only for Anglerfish if already focussed
+  bool isTimelapseAnglerfish = device_pref.isTimelapse(); // set the global variable for the loop function
+
+  if (isTimelapseAnglerfish)
+  {
+    int ledIntensity = 255;
+
+    // override  camera settings => max framesize
+    sensor_t *s = esp_camera_sensor_get();
+    s->set_framesize(s, FRAMESIZE_UXGA);
+    s->set_quality(s, 10);
+
+    // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
+    Serial.println("In timelapse mode.");
+    // Save image to SD card
+    uint32_t frame_index = device_pref.getFrameIndex() + 1;
+
+    // save frame - eventually
+    bool imageSaved = false;
+
+    // FIXME: decide which method to use..
+    device_pref.setFrameIndex(frame_index);
+    String filename = "/timelapse_image_anglerfish_" + String(imagesServed);
+    int stepSize=10;
+    int stepMin=0;
+    int stepMax=255;
+    setLamp(255);
+    if(true)
+        acquireFocusStack(filename, stepSize, stepMin=0, stepMax=255);
+    else
+        saveImage(filename, 0);
+    imagesServed++;
+    
+
+    // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
+    device_pref.setFrameIndex(imagesServed);
+
+    // Sleep
+    if (timelapseInterval == -1)
+      timelapseInterval = 300; // do timelapse every five minutes if not set properly
+    Serial.print("Sleeping for ");
+    Serial.print(timelapseInterval);
+    Serial.println(" s");
+    static const uint64_t usPerSec = 1000000; // Conversion factor from microseconds to seconds
+    esp_sleep_enable_timer_wakeup(timelapseInterval * usPerSec);
+    SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
+
+    // After SD Card init? and after the Lens was used?
+    // ATTENTIONN: DON'T USE ANY SD-CARD RELATED GPIO!!
+    // set a wakeup pin so that we reset the Snow-white deepsleep and turn on the Wifi again: // FIXME: Makes sense?
+    // esp_sleep_enable_ext0_wakeup(GPIO_NUM_15, 1); //=> GPIO: 4, level: 1
+    // Setup interrupt on Touch Pad 3 (GPIO15)
+    // touchAttachInterrupt(T3, callbackTouchpad, 40);
+    // Configure Touchpad as wakeup source
+    // esp_sleep_enable_touchpad_wakeup();
+    // Ensure LED is switched off
+    pinMode(4, OUTPUT);
+    digitalWrite(4, LOW);
+    gpio_hold_en(GPIO_NUM_4);
+    gpio_deep_sleep_hold_en();
+    esp_deep_sleep_start();
+    return;
+  }
+  else
+  {
+    Serial.println("In refocusing mode. Connect to Wifi and go to 192.168.4.1enable once you're done with focusing.");
+  }
 }

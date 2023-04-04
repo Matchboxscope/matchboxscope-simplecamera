@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Slider Link Page</title>
+  </head>
+  <body>
+    <h1>Welcome to the Slider Link Page</h1>
+    <p>Move the slider to access the link:</p>
+    <input type="range" min="0" max="100" value="0" id="slider">
+    <br><br>
+    <a href="https://www.example.com" id="link" style="display: none;">Click here to access the link</a>
+    <script>
+      const slider = document.getElementById("slider");
+      const link = document.getElementById("link");
+      slider.addEventListener("input", function() {
+        if (slider.value == 100) {
+          link.style.display = "block";
+        } else {
+          link.style.display = "none";
+        }
+      });
+    </script>
+  </body>
+</html>
