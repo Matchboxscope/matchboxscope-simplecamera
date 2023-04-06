@@ -19,7 +19,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
       with:
-        ref: main
+        ref: matchboxscope
         submodules: recursive
     - name: Set up Python
       uses: actions/setup-python@v1
@@ -39,22 +39,22 @@ jobs:
     - name: merge into one binary
       run: |
         mkdir build
-        dir .pio/build/esp32dev/ 
-        mv .pio/build/esp32dev/*.bin build/
+        dir .pio/build/esp32cam/ 
+        mv .pio/build/esp32cam/*.bin build/
         cd build
-        python -m esptool --chip esp32 merge_bin  -o ESP32-matchboxscope.bin  --flash_mode dio  --flash_freq 40m  --flash_size 4MB  0x1000 bootloader.bin  0x8000 partitions.bin  0xe000 boot_app0.bin  0x10000 firmware.bin
+        python -m esptool --chip esp32 merge_bin  -o ESP32-CAMServerAdvanced.bin  --flash_mode dio  --flash_freq 40m  --flash_size 4MB  0x1000 bootloader.bin  0x8000 partitions.bin  0xe000 boot_app0.bin  0x10000 firmware.bin
     - uses: actions/upload-artifact@v3
       with:
         name: merged-firmware
-        path: build/ESP32-matchboxscope.bin
+        path: build/ESP32-CAMServerAdvanced.bin
     - name: Push to youseetoo Webtool
       uses: dmnemec/copy_file_to_another_repo_action@main
       env:
         API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
       with:
-        source_file: 'build/ESP32-matchboxscope.bin'
+        source_file: 'build/ESP32-CAMServerAdvanced.bin'
         destination_repo: 'matchboxscope/matchboxscope.github.io'
-        destination_folder: 'static/firmware_build'
+        destination_folder: 'static/firmware/static/firmware_build'
         user_email: 'bene.d@gmx.de'
         user_name: 'beniroquai'
         commit_message: 'A new firmware binary has been released (ESP32-matchboxscope.bin) => https://github.com/youseetoo/uc2-esp32'
