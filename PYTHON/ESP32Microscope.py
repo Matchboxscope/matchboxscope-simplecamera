@@ -3,21 +3,27 @@ import requests
 import time
 import cv2
 import urllib.request
+import numpy as np
 
 class ESP32Microscope(object):
     
     def __init__(self, baseHost=None):
         self.streamRunning = False
         if baseHost is None:
-            self.baseHost = "http://192.168.137.87"
+            self.baseHost = "http://192.168.2.201"
         else:
             self.baseHost = baseHost
 
     def setParameter(self, uid, value):
         url = f"{self.baseHost}/control?var={uid}&val={value}"
-        response = requests.get(url, timeout=.10)
+        try:
+            response = requests.get(url, timeout=.50)
+            return response.text
+        except Exception as e:
+            print(e)
+            return -1
 
-        return response.text  # prints the response content as text
+          # prints the response content as text
 
     def setLED(self, value=0):
         uid = "lamp"
@@ -35,17 +41,20 @@ class ESP32Microscope(object):
         
     def generateFrames(self):
         self.streamRunning = True
-        url = self.baseHost+":81/view"
+        url = self.baseHost+":81"
         stream = urllib.request.urlopen(url, timeout=5)
-        bytes = bytes()
+        bytesJPEG = bytes()
         while self.streamRunning:
-            bytes += stream.read(1024)
-            a = bytes.find(b'\xff\xd8')
-            b = bytes.find(b'\xff\xd9')
+            
+            bytesJPEG += stream.read(1024)
+            print(bytesJPEG)
+            a = bytesJPEG.find(b'\xff\xd8')
+            b = bytesJPEG.find(b'\xff\xd9')
             if a != -1 and b != -1:
-                jpg = bytes[a:b+2]
-                bytes = bytes[b+2:]
+                jpg = bytesJPEG[a:b+2]
+                bytesJPEG = bytesJPEG[b+2:]
                 frame = cv2.imdecode(np.fromstring(jpg, dtype=np.uint8), cv2.IMREAD_COLOR)
+                print("Returning frame")
                 yield frame
     
     def returnFrames(self, callBackFct = None):

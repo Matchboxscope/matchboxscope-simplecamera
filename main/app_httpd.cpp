@@ -603,11 +603,38 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     return httpd_resp_send(req, NULL, 0);
 }
 
-static esp_err_t status_handler(httpd_req_t *req)
-{
+
+static esp_err_t mac_handler(httpd_req_t *req){
+        uint8_t mac[6];
+    WiFi.macAddress(mac);
+    // Create the filename string
+    char macaddress[32];
+    sprintf(macaddress, "%02X%02X%02X%02X%02X%02X.jpg", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    
+
+    // Construct a random URL
     static char json_response[1024];
     char *p = json_response;
     *p++ = '{';
+    // Do not get attempt to get sensor when in error; causes a panic..
+    p += sprintf(p, "\"mac\":%d,", macaddress);
+        
+    *p++ = '}';
+    *p++ = 0;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, json_response, strlen(json_response));
+}
+
+static esp_err_t status_handler(httpd_req_t *req)
+{
+
+
+    static char json_response[1024];
+    char *p = json_response;
+    *p++ = '{';
+
+
     // Do not get attempt to get sensor when in error; causes a panic..
     if (critERR.length() == 0)
     {
@@ -1134,6 +1161,11 @@ void startCameraServer(int hPort, int sPort)
         .method = HTTP_GET,
         .handler = status_handler,
         .user_ctx = NULL};
+    httpd_uri_t mac_uri = {
+        .uri = "/mac",
+        .method = HTTP_GET, 
+        .handler = mac_handler,
+        .user_ctx = NULL};
     httpd_uri_t cmd_uri = {
         .uri = "/control",
         .method = HTTP_GET,
@@ -1240,6 +1272,7 @@ void startCameraServer(int hPort, int sPort)
         httpd_register_uri_handler(camera_httpd, &dump_uri);
         httpd_register_uri_handler(camera_httpd, &stop_uri);
         httpd_register_uri_handler(camera_httpd, &uploadgithub_uri);
+        httpd_register_uri_handler(camera_httpd, &mac_uri);
     }
 
     config.server_port = sPort;

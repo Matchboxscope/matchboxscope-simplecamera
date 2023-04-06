@@ -145,7 +145,7 @@ void DevicePreferences::setTimelapseInterval(uint32_t value) {
 
 uint32_t DevicePreferences::getTimelapseInterval() {
   preferences.begin(group_name, true);
-  uint32_t value = preferences.getUInt(timelapseIntervalKey, 0);
+  uint32_t value = preferences.getUInt(timelapseIntervalKey, -1);
   preferences.end();
   return value;
 }

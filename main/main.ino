@@ -727,6 +727,15 @@ void setup()
 {
     Serial.begin(115200);
     Serial.setDebugOutput(true);
+
+    // actions done after first flashing
+    bool isFirstRun = device_pref.isFirstRun();
+    if (isFirstRun)
+    {
+        device_pref.setTimelapseInterval(-1);
+    }
+
+
     Serial.println();
     Serial.println("====");
     Serial.print("esp32-cam-webserver: ");
@@ -773,8 +782,10 @@ void setup()
         }
     }
 
+    // test LEDs
     pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, LED_ON);
+    // visualize we are "on"
+    setLamp(20);delay(50);setLamp(0);
     pinMode(PWM_PIN, OUTPUT);
     digitalWrite(PWM_PIN, 1);
     delay(50);
@@ -1056,7 +1067,7 @@ void loop()
        // Timelapse Imaging
     // Perform timelapse imaging
     timelapseInterval = device_pref.getTimelapseInterval();
-    if (timelapseInterval > -1 and ((millis() - t_old) > (1000 * timelapseInterval)))
+    if (timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
     {
         // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
         log_d("Time to save a new image", timelapseInterval);
