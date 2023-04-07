@@ -42,6 +42,7 @@ jobs:
         dir .pio/build/esp32cam/ 
         mv .pio/build/esp32cam/*.bin build/
         cd build
+        ls
         python -m esptool --chip esp32 merge_bin  -o ESP32-CAMServerAdvanced.bin  --flash_mode dio  --flash_freq 40m  --flash_size 4MB  0x1000 bootloader.bin  0x8000 partitions.bin  0xe000 boot_app0.bin  0x10000 firmware.bin
     - uses: actions/upload-artifact@v3
       with:
