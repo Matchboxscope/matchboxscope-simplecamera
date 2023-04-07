@@ -708,7 +708,15 @@ void WifiSetup()
     }
 }
 
-
+void handleSerialTask(void * pvParameters){
+    Serial.println("Creating task handleSerial");
+    Serial.println("You can enter your wifi password and ssid via a json string e.g.{\"ssid\":\"SSID_NAME\",\"password\":\"SSID-PASSWORD\"}");
+    while(true){
+        handleSerial();
+        vTaskDelay(100/ portTICK_PERIOD_MS);
+    }
+    
+}
 
 void saveCapturedImageGithubTask( void * pvParameters ){
     Serial.println("Creating task saveCapturedImageGithubTask");
@@ -754,6 +762,16 @@ void setup()
                     0,          /* Priority of the task */
                     NULL,       /* Task handle. */
                     1);  /* Core where the task should run */
+    xTaskCreatePinnedToCore(
+                    handleSerialTask,   /* Function to implement the task */
+                    "handleSerialTask", /* Name of the task */
+                    10000,      /* Stack size in words */
+                    NULL,       /* Task input parameter */
+                    1,          /* Priority of the task */
+                    NULL,       /* Task handle. */
+                    1);  /* Core where the task should run */                    
+
+
 
     Serial.println("Task created...");
 
@@ -1099,7 +1117,7 @@ void loop()
 
     if (otaEnabled)
         ArduinoOTA.handle();
-    handleSerial();
+    
 
 
 }
