@@ -45,7 +45,7 @@ jobs:
       run: pio run 
     - name: merge into one binary
       run: |
-        mkdir build
+        mkdir -p build
         dir .pio/build/esp32cam/ 
         mv .pio/build/esp32cam/*.bin build/
         cd build
