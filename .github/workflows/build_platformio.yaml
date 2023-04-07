@@ -32,7 +32,14 @@ jobs:
     # It is important to first install the libraries before compiling, since otherwise compilation might fail to find the just-installed libraries
     - name: Install platformIO libraries
       run: pio lib install
-      
+    # inject github token
+    - name: Find and Replace (Github Token)
+      uses: jacobtomlinson/gha-find-replace@v2
+      with:
+        find: '#include "githubtoken.h"'
+        replace: 'const char* GITHUB_TOKEN = "";'
+        regex: false
+
     # run for WEMOS => pindef.h
     - name: Run PlatformIO
       run: pio run 
