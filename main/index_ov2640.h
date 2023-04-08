@@ -57,9 +57,9 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
               </div>
               <div class="input-group hidden" id="timelapseInterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">
               <label for="timelapseInterval">Timelapse Interval (s)</label>
-              <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action"
-                    oninput="document.getElementById('valTimelapse').innerHTML = this.value" />
-                    <div <label id="valTimelapse"></label></div>
+              <input type="range" id="timelapseInterval" min="1" max="600" class="default-action"
+                oninput="document.querySelector('output').innerHTML = this.value" />
+                <output></output>
             </div>
               <div class="input-group hidden" id="anglerfish-group" title="Anglerfish Settings Set it to enter the deep-sleep mode with preset time value for periodic image capturing.">
                 

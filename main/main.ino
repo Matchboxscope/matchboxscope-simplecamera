@@ -735,6 +735,7 @@ void setup()
     if (isFirstRun)
     {
         device_pref.setTimelapseInterval(-1);
+        device_pref.setIsTimelapse(false); 
     }
 
     // only for Anglerfish if already focussed

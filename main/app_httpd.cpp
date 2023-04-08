@@ -559,11 +559,11 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         pwmVal = constrain(val, 0, 100);
         setPWM(pwmVal);
     }
-    else if (!strcmp(variable, "timelapseInterval") && (timelapseInterval != -1))
+    else if (!strcmp(variable, "timelapseInterval"))
     {
         Serial.print("Changing timelapse interval to: ");
         Serial.println(val);
-        timelapseInterval = constrain(val, 0, 100);
+        timelapseInterval = val;
         device_pref_http.setTimelapseInterval(timelapseInterval);
     }
     else if (!strcmp(variable, "save_prefs"))

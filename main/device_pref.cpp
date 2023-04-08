@@ -146,12 +146,16 @@ uint32_t DevicePreferences::getCameraFramesize() {
 void DevicePreferences::setTimelapseInterval(uint32_t value) {
   preferences.begin(group_name, false);
   preferences.putUInt(timelapseIntervalKey, value);
+  Serial.print("Setting Timelapse Interval to: ");
+  Serial.println(value);  
   preferences.end();
 }
 
 uint32_t DevicePreferences::getTimelapseInterval() {
   preferences.begin(group_name, true);
   uint32_t value = preferences.getUInt(timelapseIntervalKey, -1);
+  //Serial.print("Timelapse Interval is: ");
+  //Serial.println(value);
   preferences.end();
   return value;
 }
