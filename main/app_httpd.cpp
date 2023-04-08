@@ -84,7 +84,12 @@ extern char otaPassword[];
 extern unsigned long xclk;
 extern int sensorPID;
 extern int sdInitialized;
-extern DevicePreferences device_pref;
+
+//extern DevicePreferences device_pref_http;
+Preferences pref_http;
+DevicePreferences device_pref_http(pref_http, "camera", __DATE__ " " __TIME__);
+
+
 extern int timelapseInterval;
 extern bool sendToGithubFlag;
 typedef struct
@@ -271,7 +276,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
         Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
     }
     imagesServed++;
-    device_pref.setFrameIndex(imagesServed);
+    device_pref_http.setFrameIndex(imagesServed);
     if (autoLamp && (lampVal != -1))
     {
         setLamp(0);
@@ -559,7 +564,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.print("Changing timelapse interval to: ");
         Serial.println(val);
         timelapseInterval = constrain(val, 0, 100);
-        device_pref.setTimelapseInterval(timelapseInterval);
+        device_pref_http.setTimelapseInterval(timelapseInterval);
     }
     else if (!strcmp(variable, "save_prefs"))
     {
@@ -1031,8 +1036,13 @@ static esp_err_t anglerfish_handler(httpd_req_t *req)
     Serial.println("Entering the Anglerfish mode");
     for(int iFlash = 0; iFlash<10; iFlash++) flashLED(75);
     Serial.println("Going into deepsleep mode");
+
+    // save all settings from gui
+    savePrefs(SPIFFS);
   
-    device_pref.setIsTimelapse(true);
+    // this will set the anglerfish into a periodic deep-sleep awake timelapse
+    device_pref_http.setIsTimelapse(true);
+    device_pref_http.isTimelapse();
     static char json_response[1024];
     char *p = json_response;
     *p++ = '{';
@@ -1044,6 +1054,7 @@ static esp_err_t anglerfish_handler(httpd_req_t *req)
     httpd_resp_send(req, json_response, strlen(json_response));
 
     SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
+    delay(2000);
     ESP.restart();
     return 0;
 }
@@ -1273,6 +1284,7 @@ void startCameraServer(int hPort, int sPort)
         httpd_register_uri_handler(camera_httpd, &stop_uri);
         httpd_register_uri_handler(camera_httpd, &uploadgithub_uri);
         httpd_register_uri_handler(camera_httpd, &mac_uri);
+        httpd_register_uri_handler(camera_httpd, &anglerfish_uri);
     }
 
     config.server_port = sPort;
@@ -1314,14 +1326,13 @@ bool saveImage(String filename, int lensValue)
     { // Do not attempt to save anything to a non-existig SD card
 
         camera_fb_t *fb = NULL;
-
+        
         Serial.println("Capture Requested for SD card save");
         if (autoLamp && (lampVal != -1))
         {
             setLamp(lampVal);
             delay(75); // coupled with the status led flash this gives ~150ms for lamp to settle.
         }
-
         flashLED(75); // little flash of status LED
 
         int64_t fr_start = esp_timer_get_time();
@@ -1359,7 +1370,8 @@ bool saveImage(String filename, int lensValue)
 
         // Save image to disk
         fs::FS &fs = SD_MMC;
-        File imgFile = fs.open(filename.c_str(), FILE_WRITE);
+        String extension = ".jpg";
+        File imgFile = fs.open((filename+extension).c_str(), FILE_WRITE);
         if (!imgFile)
         {
             Serial.println("Failed to open file in writing mode");
@@ -1371,7 +1383,6 @@ bool saveImage(String filename, int lensValue)
             Serial.println("Saved " + filename);
         }
         imgFile.close();
-
 
         // reset frame buffer
         esp_camera_fb_return(fb);

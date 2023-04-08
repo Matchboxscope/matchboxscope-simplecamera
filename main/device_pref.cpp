@@ -32,14 +32,20 @@ static const char timelapseKey[] = "is_timelapse";
 bool DevicePreferences::isTimelapse() {
   preferences.begin(group_name, true);
   bool value = preferences.getBool(timelapseKey, false);
+  Serial.print("Getting timelapse value: "); Serial.println(value);
   preferences.end();
   return value;
 }
 
 void DevicePreferences::setIsTimelapse(bool value) {
+  Serial.print("Setting up timelapse: "); Serial.println(value);
   preferences.begin(group_name, false);
   preferences.putBool(timelapseKey, value);
+  bool value1 = preferences.getBool(timelapseKey, false);
+  Serial.print("Getting timelapse value 2: "); Serial.println(value1);
   preferences.end();
+
+
 }
 
 // Wifi settings
@@ -66,7 +72,7 @@ void DevicePreferences::setWifiPW(String value) {
 
 String DevicePreferences::getWifiPW() {
   preferences.begin(group_name, true);
-  String value = preferences.getString(wifipwKey, "Blynk");
+  String value = preferences.getString(wifipwKey, "12345678");
   preferences.end();
   return value;
 }

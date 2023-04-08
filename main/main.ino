@@ -225,7 +225,8 @@ void handleSerial()
             device_pref.setWifiPW(mssid);
             device_pref.setWifiSSID(mpassword);
         }
-        else if (doc.containsKey("github")){
+        else if (doc.containsKey("github"))
+        {
             // {"github":"send"}
             Serial.println("Sending upload page via json");
             sendToGithubFlag = true;
@@ -250,8 +251,6 @@ void flashLED(int flashtime)
     delay(flashtime);               // delay
     digitalWrite(LED_PIN, LED_OFF); // turn Off
 }
-
-
 
 // Lamp Control
 void setLamp(int newVal)
@@ -407,7 +406,7 @@ void StartCamera()
          * these are defined in the esp headers here:
          * https://github.com/espressif/esp32-camera/blob/master/driver/include/sensor.h#L149
          */
-        
+
         // s->set_framesize(s, FRAMESIZE_SVGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
         // s->set_quality(s, val);       // 10 to 63
         // s->set_brightness(s, 0);      // -2 to 2
@@ -573,12 +572,18 @@ void WifiSetup()
     {
         if (!accesspoint)
         {
-#if defined(WIFI_AP_ENABLE)
-            Serial.println("No known networks found, entering AccessPoint fallback mode");
-            accesspoint = true;
-#else
-            Serial.println("No known networks found");
-#endif
+            Serial.println("No known networks found, Trying existing one from perferences.. (set via serial..)");
+            // try existing SSID from prefes
+            // Initiate network connection request (3rd argument, channel = 0 is 'auto')
+            WiFi.begin(device_pref.getWifiSSID().c_str(), device_pref.getWifiPW().c_str());
+
+            // Wait to connect, or timeout
+            unsigned long start = millis();
+            while ((millis() - start <= WIFI_WATCHDOG) && (WiFi.status() != WL_CONNECTED))
+            {
+                delay(500);
+                Serial.print('.');
+            }
         }
         else
         {
@@ -591,32 +596,6 @@ void WifiSetup()
                       bestStation, bestBSSID[0], bestBSSID[1], bestBSSID[2], bestBSSID[3],
                       bestBSSID[4], bestBSSID[5], bestSSID);
         // Apply static settings if necesscary
-        if (stationList[bestStation].dhcp == false)
-        {
-#if defined(ST_IP)
-            Serial.println("Applying static IP settings");
-#if !defined(ST_GATEWAY) || !defined(ST_NETMASK)
-#error "You must supply both Gateway and NetMask when specifying a static IP address"
-#endif
-            IPAddress staticIP(ST_IP);
-            IPAddress gateway(ST_GATEWAY);
-            IPAddress subnet(ST_NETMASK);
-#if !defined(ST_DNS1)
-            WiFi.config(staticIP, gateway, subnet);
-#else
-            IPAddress dns1(ST_DNS1);
-#if !defined(ST_DNS2)
-            WiFi.config(staticIP, gateway, subnet, dns1);
-#else
-            IPAddress dns2(ST_DNS2);
-            WiFi.config(staticIP, gateway, subnet, dns1, dns2);
-#endif
-#endif
-#else
-            Serial.println("Static IP settings requested but not defined in config, falling back to dhcp");
-#endif
-        }
-
         WiFi.setHostname(mdnsName);
 
         // Initiate network connection request (3rd argument, channel = 0 is 'auto')
@@ -653,6 +632,18 @@ void WifiSetup()
         {
             Serial.println("Client connection Failed");
             WiFi.disconnect(); // (resets the WiFi scan)
+
+            // try existing SSID from prefes
+            // Initiate network connection request (3rd argument, channel = 0 is 'auto')
+            WiFi.begin(device_pref.getWifiSSID().c_str(), device_pref.getWifiPW().c_str());
+
+            // Wait to connect, or timeout
+            unsigned long start = millis();
+            while ((millis() - start <= WIFI_WATCHDOG) && (WiFi.status() != WL_CONNECTED))
+            {
+                delay(500);
+                Serial.print('.');
+            }
         }
     }
 
@@ -708,28 +699,31 @@ void WifiSetup()
     }
 }
 
-void handleSerialTask(void * pvParameters){
+void handleSerialTask(void *pvParameters)
+{
     Serial.println("Creating task handleSerial");
     Serial.println("You can enter your wifi password and ssid via a json string e.g.{\"ssid\":\"SSID_NAME\",\"password\":\"SSID-PASSWORD\"}");
-    while(true){
+    while (true)
+    {
         handleSerial();
-        vTaskDelay(100/ portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
-    
 }
 
-void saveCapturedImageGithubTask( void * pvParameters ){
+void saveCapturedImageGithubTask(void *pvParameters)
+{
     Serial.println("Creating task saveCapturedImageGithubTask");
-    while(true){
-        if (sendToGithubFlag){
+    while (true)
+    {
+        if (sendToGithubFlag)
+        {
             Serial.println("Sending to Github");
             sendToGithubFlag = false;
             saveCapturedImageGithub();
         }
-        vTaskDelay(100/ portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
     }
 }
- 
 
 void setup()
 {
@@ -743,7 +737,10 @@ void setup()
         device_pref.setTimelapseInterval(-1);
     }
 
+    // only for Anglerfish if already focussed
+    bool isTimelapseAnglerfish = device_pref.isTimelapse(); // set the global variable for the loop function
 
+    // Debug info
     Serial.println();
     Serial.println("====");
     Serial.print("esp32-cam-webserver: ");
@@ -754,30 +751,6 @@ void setup()
     Serial.println(baseVersion);
     Serial.println();
 
-    xTaskCreatePinnedToCore(
-                    saveCapturedImageGithubTask,   /* Function to implement the task */
-                    "saveCapturedImageGithubTask", /* Name of the task */
-                    10000,      /* Stack size in words */
-                    NULL,       /* Task input parameter */
-                    0,          /* Priority of the task */
-                    NULL,       /* Task handle. */
-                    1);  /* Core where the task should run */
-    xTaskCreatePinnedToCore(
-                    handleSerialTask,   /* Function to implement the task */
-                    "handleSerialTask", /* Name of the task */
-                    10000,      /* Stack size in words */
-                    NULL,       /* Task input parameter */
-                    1,          /* Priority of the task */
-                    NULL,       /* Task handle. */
-                    1);  /* Core where the task should run */                    
-
-
-
-    Serial.println("Task created...");
-
-    // loading previous frame index
-    imagesServed = device_pref.getFrameIndex();
-    timelapseInterval = device_pref.getTimelapseInterval();
 
     // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
     if (!psramFound())
@@ -800,15 +773,6 @@ void setup()
         }
     }
 
-    // test LEDs
-    pinMode(LED_PIN, OUTPUT);
-    // visualize we are "on"
-    setLamp(20);delay(50);setLamp(0);
-    pinMode(PWM_PIN, OUTPUT);
-    digitalWrite(PWM_PIN, 1);
-    delay(50);
-    digitalWrite(PWM_PIN, 0);
-
     // Start the SPIFFS filesystem before we initialise the camera
     if (filesystem)
     {
@@ -819,20 +783,112 @@ void setup()
     // Start (init) the camera
     StartCamera();
 
+    // initialize SD card before LED!!
+    // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
+    // with a different pin mode.
+    // 1-bit mode as suggested here:https://dr-mntn.net/2021/02/using-the-sd-card-in-1-bit-mode-on-the-esp32-cam-from-ai-thinker
+    if (!SD_MMC.begin("/sdcard", true))
+    { // FIXME: this sometimes leads to issues Unix vs. Windows formating - text encoding? Sometimes it copies to "sdcard" => Autoformating does this!!!
+        Serial.println("SD Card Mount Failed");
+        // FIXME: This should be indicated in the GUI
+        sdInitialized = false;
+        device_pref.setIsTimelapse(false); // FIXME: if SD card is missing => streaming mode!
+        isTimelapseAnglerfish = false;
+        // FIXME: won't work since LEDC is not yet initiated blinkLed(5);
+    }
+    else
+    {
+        sdInitialized = true;
+        Serial.println("SD Card Mounted");
+
+        // Check for an SD card
+        uint8_t cardType = SD_MMC.cardType();
+        if (cardType == CARD_NONE)
+        {
+            Serial.println("No SD card attached");
+        }
+        else
+        {
+            Serial.println(cardType);
+        }
+    }
+
+    if (!isTimelapseAnglerfish)
+    {
+        xTaskCreatePinnedToCore(
+            saveCapturedImageGithubTask,   /* Function to implement the task */
+            "saveCapturedImageGithubTask", /* Name of the task */
+            10000,                         /* Stack size in words */
+            NULL,                          /* Task input parameter */
+            0,                             /* Priority of the task */
+            NULL,                          /* Task handle. */
+            1);                            /* Core where the task should run */
+        xTaskCreatePinnedToCore(
+            handleSerialTask,   /* Function to implement the task */
+            "handleSerialTask", /* Name of the task */
+            10000,              /* Stack size in words */
+            NULL,               /* Task input parameter */
+            1,                  /* Priority of the task */
+            NULL,               /* Task handle. */
+            1);                 /* Core where the task should run */
+        Serial.println("Tasks created...");
+    }
+    // loading previous settings
+    imagesServed = device_pref.getFrameIndex();
+    timelapseInterval = device_pref.getTimelapseInterval();
+
+
+    // Initialise and set the lamp
+    if (lampVal != -1)
+    {
+        ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
+        ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
+        if (autoLamp)
+            setLamp(0); // set default value
+        else
+            setLamp(lampVal);
+    }
+    else
+    {
+        Serial.println("No lamp, or lamp disabled in config");
+    }
+
+    // Initialise and set the PWM output
+    if (pwmVal != -1)
+    {
+        ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
+        ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
+        ledcWrite(pwmChannel, 50);                     // set default value to center so that focus or pump are in ground state
+    }
+    else
+    {
+        Serial.println("No lamp, or lamp disabled in config");
+    }
+    // test LEDs
+    pinMode(LED_PIN, OUTPUT);
+    // visualize we are "on"
+    setLamp(20);
+    delay(50);
+    setLamp(0);
+    pinMode(PWM_PIN, OUTPUT);
+    digitalWrite(PWM_PIN, 1);
+    delay(50);
+    digitalWrite(PWM_PIN, 0);
+
     // Now load and apply any saved preferences
     if (filesystem)
     {
         delay(200); // a short delay to let spi bus settle after camera init
         loadPrefs(SPIFFS);
+        Serial.println("internal files System found and mounted");
     }
     else
     {
         Serial.println("No Internal Filesystem, cannot load or save preferences");
     }
 
-
     // before we start the WIFI - check if we are in deep-sleep/anglerfishmode
-    initAnglerfish();
+    initAnglerfish(isTimelapseAnglerfish);
 
     /*
      * Camera setup complete; initialise the rest of the hardware.
@@ -926,61 +982,6 @@ void setup()
     sketchSpace = ESP.getFreeSketchSpace();
     sketchMD5 = ESP.getSketchMD5();
 
-    // initialize SD card before LED!!
-    // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
-    // with a different pin mode.
-    // 1-bit mode as suggested here:https://dr-mntn.net/2021/02/using-the-sd-card-in-1-bit-mode-on-the-esp32-cam-from-ai-thinker
-    if (!SD_MMC.begin("/sdcard", true))
-    { // FIXME: this sometimes leads to issues Unix vs. Windows formating - text encoding? Sometimes it copies to "sdcard" => Autoformating does this!!!
-        Serial.println("SD Card Mount Failed");
-        // FIXME: This should be indicated in the GUI
-        sdInitialized = false;
-        device_pref.setIsTimelapse(false); // FIXME: if SD card is missing => streaming mode!
-        // FIXME: won't work since LEDC is not yet initiated blinkLed(5);
-    }
-    else
-    {
-        sdInitialized = true;
-        Serial.println("SD Card Mounted");
-
-        // Check for an SD card
-        uint8_t cardType = SD_MMC.cardType();
-        if (cardType == CARD_NONE)
-        {
-            Serial.println("No SD card attached");
-        }
-        else
-        {
-            Serial.println(cardType);
-        }
-    }
-
-    // Initialise and set the lamp
-    if (lampVal != -1)
-    {
-        ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
-        ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
-        if (autoLamp)
-            setLamp(0); // set default value
-        else
-            setLamp(lampVal);
-    }
-    else
-    {
-        Serial.println("No lamp, or lamp disabled in config");
-    }
-
-    // Initialise and set the PWM output
-    if (pwmVal != -1)
-    {
-        ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
-        ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
-        ledcWrite(pwmChannel, 50); // set default value to center so that focus or pump are in ground state
-    }
-    else
-    {
-        Serial.println("No lamp, or lamp disabled in config");
-    }
     // Start the camera server
     startCameraServer(httpPort, streamPort);
 
@@ -1008,17 +1009,20 @@ void setup()
         Serial.read();
 
     // save image to github
-    //sendToGithubFlag=true;
+    // sendToGithubFlag=true;
+
+    //device_pref.setIsTimelapse(1);
+    //device_pref.isTimelapse();
 }
 
-void acquireFocusStack(String filename, int stepSize=10, int stepMin=0, int stepMax=255){
-    String extension = ".jpg";
-    for (int iFocus = stepMin; iFocus < stepMax; iFocus+=stepSize){
-        String filename = filename + String(imagesServed) + "_z" + String(iFocus) + extension;
-        saveImage(filename, iFocus * 10);
+void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int stepMax = 255)
+{
+    for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
+    {
+        
+        saveImage(filename + String(imagesServed) + "_z" + String(iFocus), iFocus * 10);
     }
 }
-
 
 void loop()
 {
@@ -1082,7 +1086,7 @@ void loop()
         }
     }
     */
-       // Timelapse Imaging
+    // Timelapse Imaging
     // Perform timelapse imaging
     timelapseInterval = device_pref.getTimelapseInterval();
     if (timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
@@ -1097,7 +1101,7 @@ void loop()
         bool isAcquireStack = false; // FIXME: make this accessible through gui
         String filename = "/timelapse_image" + String(imagesServed);
         if (isAcquireStack)
-            { // FIXME: We could have a switch in the GUI for this settig
+        { // FIXME: We could have a switch in the GUI for this settig
             // acquire a stack
             // FIXME: decide which method to use..
             imagesServed++;
@@ -1106,7 +1110,7 @@ void loop()
         else
         {
             // Acquire the image and save
-            String filename = "/timelapse_image" + String(imagesServed) + ".jpg";
+            String filename = "/timelapse_image" + String(imagesServed);
             imagesServed++;
             saveImage(filename, 0);
         }
@@ -1117,79 +1121,92 @@ void loop()
 
     if (otaEnabled)
         ArduinoOTA.handle();
-    
-
-
 }
 
+void initAnglerfish(bool isTimelapseAnglerfish)
+{
 
-void initAnglerfish(void){
+    if (isTimelapseAnglerfish)
+    {
+        // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
+        Serial.println("In timelapse anglerfish mode.");
+        autoLamp = true;
+        lampVal = 255;
 
-  // only for Anglerfish if already focussed
-  bool isTimelapseAnglerfish = device_pref.isTimelapse(); // set the global variable for the loop function
+        // override  camera settings => max framesize
+        if(0){
+            sensor_t *s = esp_camera_sensor_get();
+            s->set_framesize(s, FRAMESIZE_QXGA);
+            s->set_quality(s, 10);
+        }
 
-  if (isTimelapseAnglerfish)
-  {
-    int ledIntensity = 255;
+        // warmup camera
+        camera_fb_t *fb = NULL;
+        for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++){
+            log_d("Capturing dummy frame %i", iDummyFrame);
+            fb = esp_camera_fb_get();
+            if(!fb) log_e("Camera frame error", false);
+            esp_camera_fb_return(fb);
+        }
+        
 
-    // override  camera settings => max framesize
-    sensor_t *s = esp_camera_sensor_get();
-    s->set_framesize(s, FRAMESIZE_UXGA);
-    s->set_quality(s, 10);
+        // Save image to SD card
+        uint32_t frame_index = device_pref.getFrameIndex() + 1;
 
-    // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
-    Serial.println("In timelapse mode.");
-    // Save image to SD card
-    uint32_t frame_index = device_pref.getFrameIndex() + 1;
+        // FIXME: decide which method to use..
+        device_pref.setFrameIndex(frame_index);
 
-    // save frame - eventually
-    bool imageSaved = false;
+        // Get the compile date and time as a string
+        String compileDate = String(__DATE__) + " " + String(__TIME__);
+        // Remove spaces and colons from the compile date and time string
+        compileDate.replace(" ", "_");
+        compileDate.replace(":", "");
 
-    // FIXME: decide which method to use..
-    device_pref.setFrameIndex(frame_index);
-    String filename = "/timelapse_image_anglerfish_" + String(imagesServed);
-    int stepSize=10;
-    int stepMin=0;
-    int stepMax=255;
-    setLamp(255);
-    if(true)
-        acquireFocusStack(filename, stepSize, stepMin=0, stepMax=255);
+        // Create a filename with the compile date and time string
+        String filename = "/data_" + compileDate +"_timelapse_image_anglerfish_" + String(imagesServed);
+        
+        int stepSize = 10;
+        int stepMin = 0;
+        int stepMax = 255;
+        setLamp(255);
+        bool isStack = false;
+        if (isStack)
+            acquireFocusStack(filename, stepSize, stepMin = 0, stepMax = stepMax);
+        else
+            saveImage(filename, 0);
+        imagesServed++;
+
+        // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? 
+        device_pref.setFrameIndex(imagesServed);
+
+        // Sleep
+        if (timelapseInterval == -1)
+            timelapseInterval = 60; // do timelapse every five minutes if not set properly
+        Serial.print("Sleeping for ");
+        Serial.print(timelapseInterval);
+        Serial.println(" s");
+        static const uint64_t usPerSec = 1000000; // Conversion factor from microseconds to seconds
+        esp_sleep_enable_timer_wakeup(timelapseInterval * usPerSec);
+        SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
+
+        // After SD Card init? and after the Lens was used?
+        // ATTENTIONN: DON'T USE ANY SD-CARD RELATED GPIO!!
+        // set a wakeup pin so that we reset the Snow-white deepsleep and turn on the Wifi again: // FIXME: Makes sense?
+        // esp_sleep_enable_ext0_wakeup(GPIO_NUM_15, 1); //=> GPIO: 4, level: 1
+        // Setup interrupt on Touch Pad 3 (GPIO15)
+        // touchAttachInterrupt(T3, callbackTouchpad, 40);
+        // Configure Touchpad as wakeup source
+        // esp_sleep_enable_touchpad_wakeup();
+        // Ensure LED is switched off
+        pinMode(4, OUTPUT);
+        digitalWrite(4, LOW);
+        gpio_hold_en(GPIO_NUM_4);
+        gpio_deep_sleep_hold_en();
+        esp_deep_sleep_start();
+        return;
+    }
     else
-        saveImage(filename, 0);
-    imagesServed++;
-    
-
-    // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
-    device_pref.setFrameIndex(imagesServed);
-
-    // Sleep
-    if (timelapseInterval == -1)
-      timelapseInterval = 300; // do timelapse every five minutes if not set properly
-    Serial.print("Sleeping for ");
-    Serial.print(timelapseInterval);
-    Serial.println(" s");
-    static const uint64_t usPerSec = 1000000; // Conversion factor from microseconds to seconds
-    esp_sleep_enable_timer_wakeup(timelapseInterval * usPerSec);
-    SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
-
-    // After SD Card init? and after the Lens was used?
-    // ATTENTIONN: DON'T USE ANY SD-CARD RELATED GPIO!!
-    // set a wakeup pin so that we reset the Snow-white deepsleep and turn on the Wifi again: // FIXME: Makes sense?
-    // esp_sleep_enable_ext0_wakeup(GPIO_NUM_15, 1); //=> GPIO: 4, level: 1
-    // Setup interrupt on Touch Pad 3 (GPIO15)
-    // touchAttachInterrupt(T3, callbackTouchpad, 40);
-    // Configure Touchpad as wakeup source
-    // esp_sleep_enable_touchpad_wakeup();
-    // Ensure LED is switched off
-    pinMode(4, OUTPUT);
-    digitalWrite(4, LOW);
-    gpio_hold_en(GPIO_NUM_4);
-    gpio_deep_sleep_hold_en();
-    esp_deep_sleep_start();
-    return;
-  }
-  else
-  {
-    Serial.println("In refocusing mode. Connect to Wifi and go to 192.168.4.1 ");
-  }
+    {
+        Serial.println("In livestreaming mode. Connecting to pre-set Wifi");
+    }
 }

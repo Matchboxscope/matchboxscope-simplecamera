@@ -22,7 +22,9 @@
  *    just replace your ssid and password in the line below.
  */
 
-struct station stationList[] = {{"omniscope","omniscope", true}}; //{"Blynk","12345678", true}, {"BenMur","MurBen3128", true},
+struct station stationList[] = {{"omniscope","omniscope", true},
+                                    {"Blynk","12345678", true}, 
+                                    {"BenMur","MurBen3128", true}};
 
 /*
  * You can extend the stationList[] above with additional SSID+Password pairs
