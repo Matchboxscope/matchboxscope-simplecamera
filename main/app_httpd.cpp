@@ -923,20 +923,17 @@ void saveCapturedImageGithub()
     -d '{"message":"my commit message","committer":{"name":"Monalisa Octocat","email":"octocat@github.com"},"content":"BASE64=="}'
     */
 
+    Serial.println("Performing Saving Capture for Github in Background");
     // choose smaller pixel number
-    sensor_t *s = esp_camera_sensor_get();        
+        sensor_t *s = esp_camera_sensor_get();        
     s->set_framesize(s, FRAMESIZE_VGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
-
-
     if (autoLamp && (lampVal != -1))
     {
         setLamp(lampVal);
         delay(75); // coupled with the status led flash this gives ~150ms for lamp to settle.
     }
-    flashLED(75); // little flash of status LED
 
     // capture image
-    log_d("Capturing image");
     camera_fb_t *fb = NULL;
     for (int i = 0; i < 5; i++)
     {
@@ -944,12 +941,14 @@ void saveCapturedImageGithub()
         fb = esp_camera_fb_get();
         esp_camera_fb_return(fb);
     }
+
     fb = esp_camera_fb_get();
     if (!fb)
     {
         Serial.println("Camera capture failed");
         return;
     }
+    flashLED(75); // little flash of status LED
 
     if (autoLamp && (lampVal != -1))
     {
@@ -957,7 +956,7 @@ void saveCapturedImageGithub()
     }
 
     // Encode the image in base64 format
-    log_d("Encode image image");
+    Serial.println("Encode image image");
     String base64data = base64::encode(fb->buf, fb->len); // convert buffer to base64
     esp_camera_fb_return(fb);
 
@@ -1018,12 +1017,13 @@ void saveCapturedImageGithub()
     http.end();
 
     // reset old settings
-    s->set_framesize(s, FRAMESIZE_SVGA);
+    //s->set_framesize(s, FRAMESIZE_SVGA);
 
 }
 
 static esp_err_t uploadgithub_handler(httpd_req_t *req)
 {
+    streamKill = true;
     Serial.println("Sending upload page");
     sendToGithubFlag = true;
     Serial.println("Github Upload Requested");

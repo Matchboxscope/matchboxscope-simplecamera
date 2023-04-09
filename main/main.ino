@@ -176,7 +176,7 @@ bool debugData;
 void debugOn()
 {
     debugData = true;
-    Serial.println("Camera debug data is enabled (send 'd' for status dump, or any other char to disable debug)");
+    Serial.println("Camera debug data is enabled (send '{\"d\":1}' for status dump, or any other char to disable debug)");
 }
 
 void debugOff()
@@ -191,7 +191,8 @@ void handleSerial()
     if (Serial.available())
     {
         String cmd = Serial.readString(); // Serial.read();
-        log_d("Serial command: %c", cmd);
+        Serial.print("Serial command");
+        Serial.println(cmd);
         const char *mssid = "";
         const char *mpassword = "";
         // Format {"ssid":"Blynk","password":"12345678"}
@@ -225,6 +226,21 @@ void handleSerial()
             device_pref.setWifiPW(mssid);
             device_pref.setWifiSSID(mpassword);
         }
+        if (doc.containsKey("wifiap"))
+        {
+
+            mssid = "matchboxscope";
+            mpassword = "";
+
+            // Connect to Wi-Fi network with SSID and password
+            Serial.print("Setting AP (Access Point)…");
+            // Remove the password parameter, if you want the AP (Access Point) to be open
+            WiFi.softAP(mssid);
+
+            IPAddress IP = WiFi.softAPIP();
+            Serial.print("AP IP address: ");
+            Serial.println(IP);
+          }
         else if (doc.containsKey("github"))
         {
             // {"github":"send"}
@@ -235,6 +251,7 @@ void handleSerial()
         }
         else if (doc.containsKey("d"))
         {
+            // {"d":1}
             log_d("Serial command: %c", cmd);
             serialDump();
         }
@@ -795,7 +812,9 @@ void setup()
         sdInitialized = false;
         device_pref.setIsTimelapse(false); // FIXME: if SD card is missing => streaming mode!
         isTimelapseAnglerfish = false;
-        // FIXME: won't work since LEDC is not yet initiated blinkLed(5);
+        // Flash the LED to show SD card is not connected
+        for (int i = 0; i < 20; i++){flashLED(50); delay(50);}
+        
     }
     else
     {
@@ -821,7 +840,7 @@ void setup()
             "saveCapturedImageGithubTask", /* Name of the task */
             10000,                         /* Stack size in words */
             NULL,                          /* Task input parameter */
-            0,                             /* Priority of the task */
+            11,                             /* Priority of the task */
             NULL,                          /* Task handle. */
             1);                            /* Core where the task should run */
         xTaskCreatePinnedToCore(
