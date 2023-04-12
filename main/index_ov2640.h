@@ -56,13 +56,13 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
               </div>
               <div class="input-group hidden" id="timelapseInterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">
-              <label for="timelapseInterval">Timelapse Interval (s)</label>
-              <input type="range" id="timelapseInterval" min="1" max="600" class="default-action"
-                oninput="document.querySelector('output').innerHTML = this.value" />
-                <output></output>
-            </div>
+                <label for="timelapseInterval">Timelapse Interval (s)</label>
+                <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action" oninput="document.getElementById('valTimelapse').innerHTML = this.value" />
+                <div>
+                  <label id="valTimelapse"></label>
+                </div>
+              </div>              
               <div class="input-group hidden" id="anglerfish-group" title="Anglerfish Settings Set it to enter the deep-sleep mode with preset time value for periodic image capturing.">
-                
                 <label for="AnglerfishSettings">AnglerfishSettings</label>
                 <div class="range-min">No</div>
                 <input type="range" min="0" max="100" value="0" id="anglerfishSlider" class="default-action">
@@ -241,6 +241,20 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                   <label class="slider" for="lenc"></label>
                 </div>
               </div>
+              <div class="input-group" id="stack-group">
+                <label for="stack">Stack Enable</label>
+                <div class="switch">
+                  <input id="stack" type="checkbox" class="default-action" checked="checked">
+                  <label class="slider" for="stack"></label>
+                </div>
+              </div>              
+              <div class="input-group" id="timelapse-group">
+                <label for="timelapse">Timelapse Enable</label>
+                <div class="switch">
+                  <input id="timelapse" type="checkbox" class="default-action" checked="checked">
+                  <label class="slider" for="timelapse"></label>
+                </div>
+              </div>              
               <div class="input-group" id="hmirror-group">
                 <label for="hmirror">H-Mirror Stream</label>
                 <div class="switch">

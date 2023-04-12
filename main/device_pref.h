@@ -8,8 +8,8 @@ class DevicePreferences {
     ) :
       preferences(preferences), group_name(group_name), compiled_date(compiled_date) {}
     bool isFirstRun();
-    bool isTimelapse();
-    void setIsTimelapse(bool value);
+    bool getIsTimelapseAnglerfish();
+    void setIsTimelapseAnglerfish(bool value);
     void setWifiSSID(String value);
     void setWifiPW(String value);
     String getWifiSSID();    
@@ -27,6 +27,9 @@ class DevicePreferences {
     void setCameraFramesize(uint32_t value);  
     void setCameraEffect(uint32_t value);
     uint32_t getCameraEffect();
+
+    void setAcquireStack(bool value);
+    bool getAcquireStack();
 
 
 

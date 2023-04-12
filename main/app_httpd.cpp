@@ -89,6 +89,7 @@ extern int sdInitialized;
 Preferences pref_http;
 DevicePreferences device_pref_http(pref_http, "camera", __DATE__ " " __TIME__);
 
+bool IS_STREAM_PAUSE = false;
 
 extern int timelapseInterval;
 extern bool sendToGithubFlag;
@@ -327,6 +328,11 @@ static esp_err_t stream_handler(httpd_req_t *req)
 
     while (true)
     {
+        // in case we need to pause the stream since we save the images?
+        while(IS_STREAM_PAUSE){
+            delay(10);
+        }
+
         fb = esp_camera_fb_get();
         if (!fb)
         {
@@ -512,6 +518,17 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         res = s->set_wpc(s, val);
     else if (!strcmp(variable, "raw_gma"))
         res = s->set_raw_gma(s, val);
+    else if (!strcmp(variable, "stack")){
+        Serial.print("Changing stack is enable to: ");
+        Serial.println(val);
+        device_pref_http.setAcquireStack(val);
+    }
+    else if (!strcmp(variable, "timelapse")){
+        Serial.print("Changing timelapse is enable to: ");
+        Serial.println(val);
+        if (val == 0)
+            device_pref_http.setTimelapseInterval(-1);
+    }
     else if (!strcmp(variable, "lenc"))
         res = s->set_lenc(s, val);
     else if (!strcmp(variable, "special_effect"))
@@ -677,6 +694,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"code_ver\":\"%s\",", myVer);
         p += sprintf(p, "\"rotate\":\"%d\",", myRotation);
         p += sprintf(p, "\"stream_url\":\"%s\",", streamURL);
+        //p += sprintf(p, "\"stack\":\"%u\",", isStackAcquire);
         p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
     }
     *p++ = '}';
@@ -911,6 +929,17 @@ esp_err_t client_event_get_handler(esp_http_client_event_handle_t evt)
 }
 
 
+void saveCapturedImageiNaturalist()
+{
+    /* Write a function that uploads an image using the iNaturalist REST API
+    */
+    Serial.println("Performing Saving Capture for iNaturalist in Background");
+    // choose smaller pixel number
+        sensor_t *s = esp_camera_sensor_get();
+    s->set_framesize(s, FRAMESIZE_VGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA]
+    
+
+}
 void saveCapturedImageGithub()
 {
     /* This works in MAC
@@ -921,6 +950,8 @@ void saveCapturedImageGithub()
     -H "X-GitHub-Api-Version: 2022-11-28" \
     https://api.github.com/repos/matchboxscope/matchboxscope-gallery/contents/test2.jpg \
     -d '{"message":"my commit message","committer":{"name":"Monalisa Octocat","email":"octocat@github.com"},"content":"BASE64=="}'
+    
+    
     */
 
     Serial.println("Performing Saving Capture for Github in Background");
@@ -1041,8 +1072,8 @@ static esp_err_t anglerfish_handler(httpd_req_t *req)
     savePrefs(SPIFFS);
   
     // this will set the anglerfish into a periodic deep-sleep awake timelapse
-    device_pref_http.setIsTimelapse(true);
-    device_pref_http.isTimelapse();
+    device_pref_http.setIsTimelapseAnglerfish(true);
+    device_pref_http.getIsTimelapseAnglerfish();
     static char json_response[1024];
     char *p = json_response;
     *p++ = '{';
@@ -1311,6 +1342,10 @@ void startCameraServer(int hPort, int sPort)
 
 bool saveImage(String filename, int lensValue)
 {
+    // Pause the stream for a moment
+    IS_STREAM_PAUSE = true;
+
+
     // load camera preferences into camera
     loadPrefs(SPIFFS);
 
@@ -1392,5 +1427,9 @@ bool saveImage(String filename, int lensValue)
     {
         res = false;
     }
+
+    // Resume the stream
+    IS_STREAM_PAUSE = false;
+
     return res;
 }

@@ -135,6 +135,7 @@ unsigned long xclk = 8;
 // initial rotation
 // can be set in myconfig.h
 int myRotation = 0;
+bool isStackAcquired = false;
 
 // minimal frame duration in ms, effectively 1/maxFPS
 int minFrameTime = 0;
@@ -148,6 +149,7 @@ bool sendToGithubFlag = false;
 int lampVal = 0;       // default to off
 bool autoLamp = false; // Automatic lamp (auto on while camera running)
 int pwmVal = 0;        // default no-value
+bool BUSY_SET_LED = false;
 
 int lampChannel = 7; // a free PWM channel (some channels used by camera)
 int pwmChannel = 5;
@@ -269,11 +271,13 @@ void flashLED(int flashtime)
     digitalWrite(LED_PIN, LED_OFF); // turn Off
 }
 
+
 // Lamp Control
 void setLamp(int newVal)
 {
-    if (newVal != -1)
+    if (newVal != -1 and !BUSY_SET_LED)
     {
+        BUSY_SET_LED = true;
         // Apply a logarithmic function to the scale.
         int brightness = round((pow(2, (1 + (newVal * 0.02))) - 2) / 6 * pwmMax);
         ledcWrite(lampChannel, brightness);
@@ -281,6 +285,8 @@ void setLamp(int newVal)
         Serial.print(newVal);
         Serial.print("%, pwm = ");
         Serial.println(brightness);
+        BUSY_SET_LED = false;
+        delay(15); // settle time
     }
 }
 
@@ -297,6 +303,7 @@ void setPWM(int newVal)
         Serial.print("%, pwm = ");
         Serial.println(current);
     }
+    
 }
 
 void printLocalTime(bool extraData = false)
@@ -752,11 +759,12 @@ void setup()
     if (isFirstRun)
     {
         device_pref.setTimelapseInterval(-1);
-        device_pref.setIsTimelapse(false); 
+        device_pref.setIsTimelapseAnglerfish(false); 
     }
+    isStackAcquired = device_pref.getAcquireStack();
 
     // only for Anglerfish if already focussed
-    bool isTimelapseAnglerfish = device_pref.isTimelapse(); // set the global variable for the loop function
+    bool isTimelapseAnglerfish = device_pref.getIsTimelapseAnglerfish(); // set the global variable for the loop function
 
     // Debug info
     Serial.println();
@@ -810,7 +818,7 @@ void setup()
         Serial.println("SD Card Mount Failed");
         // FIXME: This should be indicated in the GUI
         sdInitialized = false;
-        device_pref.setIsTimelapse(false); // FIXME: if SD card is missing => streaming mode!
+        device_pref.setIsTimelapseAnglerfish(false); // FIXME: if SD card is missing => streaming mode!
         isTimelapseAnglerfish = false;
         // Flash the LED to show SD card is not connected
         for (int i = 0; i < 20; i++){flashLED(50); delay(50);}
@@ -876,13 +884,17 @@ void setup()
     // Initialise and set the PWM output
     if (pwmVal != -1)
     {
+        pinMode(PWM_PIN, OUTPUT);
+        log_d("PWM pin: %d", PWM_PIN);
         ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
         ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
-        ledcWrite(pwmChannel, 50);                     // set default value to center so that focus or pump are in ground state
+        ledcWrite(pwmChannel, 255);                     // set default value to center so that focus or pump are in ground state
+        delay(30);
+        ledcWrite(pwmChannel, 0);                     // set default value to center so that focus or pump are in ground state
     }
     else
     {
-        Serial.println("No lamp, or lamp disabled in config");
+        Serial.println("No PWM, or PWM disabled in config");
     }
     // test LEDs
     pinMode(LED_PIN, OUTPUT);
@@ -890,10 +902,7 @@ void setup()
     setLamp(20);
     delay(50);
     setLamp(0);
-    pinMode(PWM_PIN, OUTPUT);
-    digitalWrite(PWM_PIN, 1);
-    delay(50);
-    digitalWrite(PWM_PIN, 0);
+
 
     // Now load and apply any saved preferences
     if (filesystem)
@@ -1031,16 +1040,18 @@ void setup()
     // save image to github
     // sendToGithubFlag=true;
 
-    //device_pref.setIsTimelapse(1);
-    //device_pref.isTimelapse();
+    //device_pref.setIsTimelapseAnglerfish(1);
+    //device_pref.getIsTimelapseAnglerfish();
 }
 
-void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int stepMax = 255)
+void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int stepMax = 100)
 {
+    /*
+    Acquire a stack of images 
+    */
     for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
     {
-        
-        saveImage(filename + String(imagesServed) + "_z" + String(iFocus), iFocus * 10);
+        saveImage(filename + String(imagesServed) + "_z" + String(iFocus), iFocus);
     }
 }
 
@@ -1118,9 +1129,9 @@ void loop()
 
         // turns on lamp automatically
         // save to SD card if existent
-        bool isAcquireStack = false; // FIXME: make this accessible through gui
+
         String filename = "/timelapse_image" + String(imagesServed);
-        if (isAcquireStack)
+        if (device_pref.getAcquireStack())
         { // FIXME: We could have a switch in the GUI for this settig
             // acquire a stack
             // FIXME: decide which method to use..
@@ -1189,8 +1200,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         int stepMin = 0;
         int stepMax = 255;
         setLamp(255);
-        bool isStack = false;
-        if (isStack)
+        if (device_pref.getAcquireStack())
             acquireFocusStack(filename, stepSize, stepMin = 0, stepMax = stepMax);
         else
             saveImage(filename, 0);

@@ -29,7 +29,7 @@ bool DevicePreferences::isFirstRun() {
 // Timelapse mode
 
 static const char timelapseKey[] = "is_timelapse";
-bool DevicePreferences::isTimelapse() {
+bool DevicePreferences::getIsTimelapseAnglerfish() {
   preferences.begin(group_name, true);
   bool value = preferences.getBool(timelapseKey, false);
   Serial.print("Getting timelapse value: "); Serial.println(value);
@@ -37,7 +37,7 @@ bool DevicePreferences::isTimelapse() {
   return value;
 }
 
-void DevicePreferences::setIsTimelapse(bool value) {
+void DevicePreferences::setIsTimelapseAnglerfish(bool value) {
   Serial.print("Setting up timelapse: "); Serial.println(value);
   preferences.begin(group_name, false);
   preferences.putBool(timelapseKey, value);
@@ -141,6 +141,27 @@ uint32_t DevicePreferences::getCameraFramesize() {
   preferences.end();
   return value;
 }
+
+// STACK - acquire stack?
+static const char isStackKey[] = "isStack";
+void DevicePreferences::setAcquireStack(bool value) {
+  preferences.begin(group_name, false);
+  preferences.putBool(isStackKey, value);
+  Serial.print("Setting stack enable to: ");
+  Serial.println(value);  
+  preferences.end();
+}
+
+bool DevicePreferences::getAcquireStack(void) {
+  preferences.begin(group_name, true);
+  bool value = preferences.getBool(isStackKey, false);
+  Serial.print("Is Acquire Stack is: ");
+  Serial.println(value);
+  preferences.end();
+  return value;
+}
+
+
 
 // CAMERA - stream framesize
 void DevicePreferences::setTimelapseInterval(uint32_t value) {

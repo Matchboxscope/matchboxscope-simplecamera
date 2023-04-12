@@ -9,7 +9,6 @@ extern int lampVal;       // The current Lamp value
 extern bool autoLamp;     // Automatic lamp mode
 extern int xclk;          // Camera module clock speed
 extern int minFrameTime;  // Limits framerate
-
 /*
  * Useful utility when debugging...
  */
