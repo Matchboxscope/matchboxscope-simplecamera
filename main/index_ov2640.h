@@ -679,6 +679,14 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       updateConfig(minFrameTime)
     }
 
+  
+    timelapseInterval.onchange = () => {
+      const timelapseInterval = document.getElementById('timelapseInterval');
+      valTimelapseLabel = document.getElementById('valTimelapse')
+      valTimelapseLabel.innerHTML = timelapseInterval.value;
+    }
+    
+
     xclk.onchange = () => {
       console.log("xclk:" , xclk);
       updateConfig(xclk)

@@ -669,6 +669,27 @@ void WifiSetup()
                 Serial.print('.');
             }
         }
+
+        // If we still haven't connected switch to AP mode
+        if (!WiFi.status() == WL_CONNECTED){
+            Serial.println("Client connection not successful - switching to AP Mode: SSID: 'Matchboxscope'");
+            
+            WiFi.disconnect(); // (resets the WiFi scan)
+            WiFi.mode(WIFI_AP);
+            WiFi.softAP("Matchboxscope");
+            Serial.print("[+] AP Created with IP Gateway ");
+            Serial.println(WiFi.softAPIP());
+
+            // Note IP details
+            ip = WiFi.localIP();
+            net = WiFi.subnetMask();
+            gw = WiFi.gatewayIP();
+            Serial.printf("IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
+            Serial.printf("Netmask   : %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
+            Serial.printf("Gateway   : %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
+            calcURLs();
+            
+        }
     }
 
     if (accesspoint && (WiFi.status() != WL_CONNECTED))
@@ -1122,6 +1143,7 @@ void loop()
     timelapseInterval = device_pref.getTimelapseInterval();
     if (timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
     {
+        savePrefs(SPIFFS);
         // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
         log_d("Time to save a new image", timelapseInterval);
         t_old = millis();
@@ -1170,7 +1192,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
             s->set_framesize(s, FRAMESIZE_QXGA);
             s->set_quality(s, 10);
         }
-
+    
         // warmup camera
         camera_fb_t *fb = NULL;
         for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++){
@@ -1198,7 +1220,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         
         int stepSize = 10;
         int stepMin = 0;
-        int stepMax = 255;
+        int stepMax = 100;
         setLamp(255);
         if (device_pref.getAcquireStack())
             acquireFocusStack(filename, stepSize, stepMin = 0, stepMax = stepMax);
