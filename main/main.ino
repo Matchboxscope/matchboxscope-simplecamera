@@ -14,6 +14,8 @@
 #include "device_pref.h"
 #include "ArduinoJson.h"
 
+#include "anglerfishcamsettings.h"
+
 /* This sketch is a extension/expansion/reork of the 'official' ESP32 Camera example
  *  sketch from Expressif:
  *  https://github.com/espressif/arduino-esp32/tree/master/libraries/ESP32/examples/Camera/CameraWebServer
@@ -242,7 +244,7 @@ void handleSerial()
             IPAddress IP = WiFi.softAPIP();
             Serial.print("AP IP address: ");
             Serial.println(IP);
-          }
+        }
         else if (doc.containsKey("github"))
         {
             // {"github":"send"}
@@ -270,7 +272,6 @@ void flashLED(int flashtime)
     delay(flashtime);               // delay
     digitalWrite(LED_PIN, LED_OFF); // turn Off
 }
-
 
 // Lamp Control
 void setLamp(int newVal)
@@ -303,7 +304,6 @@ void setPWM(int newVal)
         Serial.print("%, pwm = ");
         Serial.println(current);
     }
-    
 }
 
 void printLocalTime(bool extraData = false)
@@ -365,7 +365,7 @@ void StartCamera()
     config.frame_size = FRAMESIZE_SVGA;
     config.jpeg_quality = 12;
     config.fb_location = CAMERA_FB_IN_PSRAM;
-    config.fb_count = 2;
+    config.fb_count = 1;
     config.grab_mode = CAMERA_GRAB_LATEST;
 
     // camera init
@@ -671,9 +671,10 @@ void WifiSetup()
         }
 
         // If we still haven't connected switch to AP mode
-        if (!WiFi.status() == WL_CONNECTED){
+        if (!WiFi.status() == WL_CONNECTED)
+        {
             Serial.println("Client connection not successful - switching to AP Mode: SSID: 'Matchboxscope'");
-            
+
             WiFi.disconnect(); // (resets the WiFi scan)
             WiFi.mode(WIFI_AP);
             WiFi.softAP("Matchboxscope");
@@ -688,7 +689,6 @@ void WifiSetup()
             Serial.printf("Netmask   : %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
             Serial.printf("Gateway   : %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
             calcURLs();
-            
         }
     }
 
@@ -780,7 +780,7 @@ void setup()
     if (isFirstRun)
     {
         device_pref.setTimelapseInterval(-1);
-        device_pref.setIsTimelapseAnglerfish(false); 
+        device_pref.setIsTimelapseAnglerfish(false);
     }
     isStackAcquired = device_pref.getAcquireStack();
 
@@ -798,7 +798,6 @@ void setup()
     Serial.println(baseVersion);
     Serial.println();
 
-
     // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
     if (!psramFound())
     {
@@ -808,6 +807,12 @@ void setup()
             Serial.println("No PSRAM found; camera cannot be initialised: Please check the board config for your module.");
             delay(5000);
         }
+    }
+    else
+    {
+        config.frame_size = FRAMESIZE_UXGA;
+        config.jpeg_quality = 3;
+        config.fb_count = 1;
     }
 
     if (stationCount == 0)
@@ -829,6 +834,7 @@ void setup()
 
     // Start (init) the camera
     StartCamera();
+    initAnglerfishCamSettings();
 
     // initialize SD card before LED!!
     // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
@@ -842,8 +848,11 @@ void setup()
         device_pref.setIsTimelapseAnglerfish(false); // FIXME: if SD card is missing => streaming mode!
         isTimelapseAnglerfish = false;
         // Flash the LED to show SD card is not connected
-        for (int i = 0; i < 20; i++){flashLED(50); delay(50);}
-        
+        for (int i = 0; i < 20; i++)
+        {
+            flashLED(50);
+            delay(50);
+        }
     }
     else
     {
@@ -869,7 +878,7 @@ void setup()
             "saveCapturedImageGithubTask", /* Name of the task */
             10000,                         /* Stack size in words */
             NULL,                          /* Task input parameter */
-            11,                             /* Priority of the task */
+            11,                            /* Priority of the task */
             NULL,                          /* Task handle. */
             1);                            /* Core where the task should run */
         xTaskCreatePinnedToCore(
@@ -885,7 +894,6 @@ void setup()
     // loading previous settings
     imagesServed = device_pref.getFrameIndex();
     timelapseInterval = device_pref.getTimelapseInterval();
-
 
     // Initialise and set the lamp
     if (lampVal != -1)
@@ -909,9 +917,9 @@ void setup()
         log_d("PWM pin: %d", PWM_PIN);
         ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
         ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
-        ledcWrite(pwmChannel, 255);                     // set default value to center so that focus or pump are in ground state
+        ledcWrite(pwmChannel, 255);                    // set default value to center so that focus or pump are in ground state
         delay(30);
-        ledcWrite(pwmChannel, 0);                     // set default value to center so that focus or pump are in ground state
+        ledcWrite(pwmChannel, 0); // set default value to center so that focus or pump are in ground state
     }
     else
     {
@@ -923,7 +931,6 @@ void setup()
     setLamp(20);
     delay(50);
     setLamp(0);
-
 
     // Now load and apply any saved preferences
     if (filesystem)
@@ -1061,14 +1068,14 @@ void setup()
     // save image to github
     // sendToGithubFlag=true;
 
-    //device_pref.setIsTimelapseAnglerfish(1);
-    //device_pref.getIsTimelapseAnglerfish();
+    // device_pref.setIsTimelapseAnglerfish(1);
+    // device_pref.getIsTimelapseAnglerfish();
 }
 
 void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int stepMax = 100)
 {
     /*
-    Acquire a stack of images 
+    Acquire a stack of images
     */
     for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
     {
@@ -1168,6 +1175,9 @@ void loop()
             saveImage(filename, 0);
         }
 
+        // set default lamp value for streaming
+        setLamp(lampVal);
+
         // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
         device_pref.setFrameIndex(frame_index);
     }
@@ -1175,6 +1185,7 @@ void loop()
     if (otaEnabled)
         ArduinoOTA.handle();
 }
+
 
 void initAnglerfish(bool isTimelapseAnglerfish)
 {
@@ -1185,23 +1196,29 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         Serial.println("In timelapse anglerfish mode.");
         autoLamp = true;
         lampVal = 255;
+        autoLamp = true;
+        setLamp(lampVal);
+
+        initAnglerfishCamSettings();
 
         // override  camera settings => max framesize
-        if(0){
+        if (0)
+        {
             sensor_t *s = esp_camera_sensor_get();
             s->set_framesize(s, FRAMESIZE_QXGA);
             s->set_quality(s, 10);
         }
-    
+
         // warmup camera
         camera_fb_t *fb = NULL;
-        for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++){
+        for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
+        {
             log_d("Capturing dummy frame %i", iDummyFrame);
             fb = esp_camera_fb_get();
-            if(!fb) log_e("Camera frame error", false);
+            if (!fb)
+                log_e("Camera frame error", false);
             esp_camera_fb_return(fb);
         }
-        
 
         // Save image to SD card
         uint32_t frame_index = device_pref.getFrameIndex() + 1;
@@ -1216,19 +1233,19 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         compileDate.replace(":", "");
 
         // Create a filename with the compile date and time string
-        String filename = "/data_" + compileDate +"_timelapse_image_anglerfish_" + String(imagesServed);
-        
+        String filename = "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed);
+
         int stepSize = 10;
         int stepMin = 0;
         int stepMax = 100;
-        setLamp(255);
+        
         if (device_pref.getAcquireStack())
             acquireFocusStack(filename, stepSize, stepMin = 0, stepMax = stepMax);
         else
             saveImage(filename, 0);
         imagesServed++;
 
-        // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? 
+        // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues?
         device_pref.setFrameIndex(imagesServed);
 
         // Sleep
@@ -1241,19 +1258,6 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         esp_sleep_enable_timer_wakeup(timelapseInterval * usPerSec);
         SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
 
-        // After SD Card init? and after the Lens was used?
-        // ATTENTIONN: DON'T USE ANY SD-CARD RELATED GPIO!!
-        // set a wakeup pin so that we reset the Snow-white deepsleep and turn on the Wifi again: // FIXME: Makes sense?
-        // esp_sleep_enable_ext0_wakeup(GPIO_NUM_15, 1); //=> GPIO: 4, level: 1
-        // Setup interrupt on Touch Pad 3 (GPIO15)
-        // touchAttachInterrupt(T3, callbackTouchpad, 40);
-        // Configure Touchpad as wakeup source
-        // esp_sleep_enable_touchpad_wakeup();
-        // Ensure LED is switched off
-        pinMode(4, OUTPUT);
-        digitalWrite(4, LOW);
-        gpio_hold_en(GPIO_NUM_4);
-        gpio_deep_sleep_hold_en();
         esp_deep_sleep_start();
         return;
     }

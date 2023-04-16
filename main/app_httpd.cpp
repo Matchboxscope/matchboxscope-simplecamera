@@ -357,6 +357,9 @@ static esp_err_t stream_handler(httpd_req_t *req)
             size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, _jpg_buf_len);
             res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
         }
+        else{
+            log_d("STREAM: corrupted frame");
+        }
         if (res == ESP_OK)
         {
             res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
@@ -956,7 +959,7 @@ void saveCapturedImageGithub()
 
     Serial.println("Performing Saving Capture for Github in Background");
     // choose smaller pixel number
-        sensor_t *s = esp_camera_sensor_get();        
+    sensor_t *s = esp_camera_sensor_get();        
     s->set_framesize(s, FRAMESIZE_VGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
     if (autoLamp && (lampVal != -1))
     {
@@ -1372,6 +1375,10 @@ bool saveImage(String filename, int lensValue)
 
         int64_t fr_start = esp_timer_get_time();
 
+        for(int iDummyFrames=0; iDummyFrames<2; iDummyFrames++){
+            fb = esp_camera_fb_get();
+            esp_camera_fb_return(fb);
+        }
         fb = esp_camera_fb_get();
         if (!fb)
         {
@@ -1422,6 +1429,12 @@ bool saveImage(String filename, int lensValue)
         // reset frame buffer
         esp_camera_fb_return(fb);
         fb = NULL;
+
+
+        if (autoLamp)
+        {
+            setLamp(0);
+        }
     }
     else
     {
