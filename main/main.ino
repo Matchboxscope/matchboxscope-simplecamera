@@ -834,7 +834,7 @@ void setup()
 
     // Start (init) the camera
     StartCamera();
-    initAnglerfishCamSettings();
+    //initAnglerfishCamSettings();
 
     // initialize SD card before LED!!
     // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
@@ -1194,12 +1194,15 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     {
         // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
         Serial.println("In timelapse anglerfish mode.");
+        
+        // load previous settings
+        loadPrefs(SPIFFS);
+        
+        // override LED settings
         autoLamp = true;
         lampVal = 255;
         autoLamp = true;
         setLamp(lampVal);
-
-        initAnglerfishCamSettings();
 
         // override  camera settings => max framesize
         if (0)

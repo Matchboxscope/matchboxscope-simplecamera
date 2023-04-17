@@ -29,6 +29,8 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
         <button id="swap-viewer" style="float:left;" title="Swap to simple viewer">Simple</button>
         <button id="get-still" style="float:left;">Get Still</button>
         <button id="send-github" style="float:left;">To GitHub</button>
+        <img alt="ImJoy" src="https://ij.imjoy.io/assets/badge/open-in-imagej-js-badge.svg" style="float:left;" /></a></span>
+        <button id="send-imjoy" style="float:left;">To ImJoy</button>
         <button id="toggle-stream" style="float:left;" class="hidden">Start Stream</button>
         <div id="wait-settings" style="float:left;" class="loader" title="Waiting for camera settings to load"></div>
       </div>
@@ -80,7 +82,8 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                       anglerfishLink.style.display = "none";
                     }
                   });
-                </script>                
+                </script>   
+                <script src="https://lib.imjoy.io/imjoy-loader.js"></script>             
               </div>              
                 <div class="input-group" id="framesize-group" title="Camera resolution&#013;Higher resolutions will result in lower framerates">
                 <label for="framesize">Resolution</label>
@@ -325,7 +328,8 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
               <div class="input-group hidden" id="stream-group">
                 <label for="stream_url" id="stream_link">Stream</label>
                 <div id="stream_url" class="default-action">Unknown</div>
-              </div>
+              <div id="window-container"></div>
+              <div id="menu-container"></div>
             </nav>
         </div>
         <figure>
@@ -360,6 +364,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const viewContainer = document.getElementById('stream-container')
     const stillButton = document.getElementById('get-still')
     const githubButton = document.getElementById('send-github')
+    const imjoyButton = document.getElementById('send-imjoy')
     const streamButton = document.getElementById('toggle-stream')
     const closeButton = document.getElementById('close-stream')
     const streamLink = document.getElementById('stream_link')
@@ -540,7 +545,56 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     // Put some helpful text on the 'Still' button
     stillButton.setAttribute("title", `Capture a still image :: ${baseHost}/capture`);
     githubButton.setAttribute("title", `Upload a still image to Github :: ${baseHost}/uploadgithub`);
+    imjoyButton.setAttribute("title", `Upload a still image to ImJoy :: ${baseHost}/uploadimjoy`);
     
+    loadImJoyBasicApp({
+      process_url_query: true,
+      show_window_title: false,
+      show_progress_bar: true,
+      show_empty_window: true,
+      menu_style: { position: "absolute", right: 0, top: "2px" },
+      window_style: { width: '100%', height: '100%' },
+      main_container: null,
+      menu_container: "menu-container",
+      window_manager_container: "window-container",
+      imjoy_api: {} // override some imjoy API functions here
+  }).then(async app => {
+      // get the api object from the root plugin
+      const api = app.imjoy.api;
+      // if you want to let users to load new plugins, add a menu item
+      app.addMenuItem({
+          label: "➕ Load Plugin",
+          callback() {
+              const uri = prompt(
+                  `Please type a ImJoy plugin URL`,
+                  "https://github.com/imjoy-team/imjoy-plugins/blob/master/repository/ImageAnnotator.imjoy.html"
+              );
+              if (uri) app.loadPlugin(uri);
+          },
+      });
+
+      window.sendToImageJ = async function () {
+          const imageURL = document.location.origin
+          const response = await fetch(`${imageURL}/capture?_cb=ImJoy`);
+          const bytes = await response.arrayBuffer();
+          // if you want a windows displayed in a draggable rezisable grid layout
+          let ij = await api.getWindow("ImageJ.JS")
+          if (!ij) {
+              ij = await api.createWindow({
+                  src: "https://ij.imjoy.io",
+                  name: "ImageJ.JS",
+                  fullscreen: true,
+                  // window_id: "imagej-window", // if you want to display imagej in a specific window, place a div with this id in the html
+              });
+          }
+          else {
+              await ij.show();
+          }
+          // https://github.com/imjoy-team/imagej.js#viewimageimg_array-config
+          await ij.viewImage(bytes, { name: 'image.jpeg' })
+      }
+    });
+
     const stopStream = () => {
       window.stop();
       streamButton.innerHTML = 'Start Stream';
@@ -603,6 +657,14 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       }).catch(function(err) {
         console.log('Fetch Error :-S', err);
       });
+    }
+
+    imjoyButton.onclick = () => {
+      stopStream();
+      view.src = `${baseHost}/capture?_cb=ImJoy`;
+      view.scrollIntoView(false);
+      show(viewContainer);
+      sendToImageJ();
     }
 
     closeButton.onclick = () => {
@@ -722,7 +784,9 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     }
 
   })
-  </script>
+
+</script>
+
 </html>)=====";
 
 size_t index_ov2640_html_len = sizeof(index_ov2640_html)-1;

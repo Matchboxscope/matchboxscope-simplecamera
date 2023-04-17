@@ -659,6 +659,7 @@ static esp_err_t status_handler(httpd_req_t *req)
     char *p = json_response;
     *p++ = '{';
 
+    // FIXME: We should have an indicator if SD card was properly mounted
 
     // Do not get attempt to get sensor when in error; causes a panic..
     if (critERR.length() == 0)
@@ -1375,6 +1376,7 @@ bool saveImage(String filename, int lensValue)
 
         int64_t fr_start = esp_timer_get_time();
 
+        // FIXME: Why is this necessary?  Without it, the first frame is always garbage, e.g shifted lines - JPEG artifact?.
         for(int iDummyFrames=0; iDummyFrames<2; iDummyFrames++){
             fb = esp_camera_fb_get();
             esp_camera_fb_return(fb);
