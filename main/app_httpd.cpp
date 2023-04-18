@@ -285,6 +285,9 @@ static esp_err_t capture_handler(httpd_req_t *req)
     return res;
 }
 
+
+bool IS_STREAMING = false;
+
 static esp_err_t stream_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
@@ -326,11 +329,15 @@ static esp_err_t stream_handler(httpd_req_t *req)
         res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
     }
 
+    
     while (true)
     {
+
+        IS_STREAMING = true;
         // in case we need to pause the stream since we save the images?
-        while(IS_STREAM_PAUSE){
+        while (IS_STREAM_PAUSE){
             delay(10);
+            IS_STREAMING = false;
         }
 
         fb = esp_camera_fb_get();
@@ -359,6 +366,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
         }
         else{
             log_d("STREAM: corrupted frame");
+            //ESP.restart();
         }
         if (res == ESP_OK)
         {
@@ -531,6 +539,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.println(val);
         if (val == 0)
             device_pref_http.setTimelapseInterval(-1);
+            //FIXME: We need to have a proper switch not just a value - won't work! 
     }
     else if (!strcmp(variable, "lenc"))
         res = s->set_lenc(s, val);
@@ -1349,6 +1358,11 @@ bool saveImage(String filename, int lensValue)
     // Pause the stream for a moment
     IS_STREAM_PAUSE = true;
 
+    // wait until stream pauses
+    while (IS_STREAMING)
+    {
+        delay(10);
+    }
 
     // load camera preferences into camera
     loadPrefs(SPIFFS);
@@ -1388,6 +1402,7 @@ bool saveImage(String filename, int lensValue)
             if (autoLamp && (lampVal != -1))
                 setLamp(0);
             res = false;
+            return res;
         }
 
         size_t fb_len = 0;

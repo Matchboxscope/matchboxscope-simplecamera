@@ -135,6 +135,7 @@ void loadPrefs(fs::FS &fs){
 }
 
 void savePrefs(fs::FS &fs){
+  // FIXME: Merge with loadPrefs() to avoid duplication
   if (fs.exists(PREFERENCES_FILE)) {
     Serial.printf("Updating %s\r\n", PREFERENCES_FILE);
   } else {

@@ -365,7 +365,7 @@ void StartCamera()
     config.frame_size = FRAMESIZE_SVGA;
     config.jpeg_quality = 12;
     config.fb_location = CAMERA_FB_IN_PSRAM;
-    config.fb_count = 1;
+    config.fb_count = 2;
     config.grab_mode = CAMERA_GRAB_LATEST;
 
     // camera init
@@ -770,6 +770,21 @@ void saveCapturedImageGithubTask(void *pvParameters)
     }
 }
 
+int get_mean_intensity(camera_fb_t *fb)
+{
+    uint8_t *pixels = fb->buf;
+    int num_pixels = fb->width * fb->height;
+
+    int sum_intensity = 0;
+    for (int i = 0; i < num_pixels; i++)
+    {
+        sum_intensity += pixels[i];
+    }
+    int mean_intensity = sum_intensity / num_pixels;
+
+    return mean_intensity;
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -834,7 +849,10 @@ void setup()
 
     // Start (init) the camera
     StartCamera();
-    //initAnglerfishCamSettings();
+    if (!isTimelapseAnglerfish)
+    {
+        // initSpeciaCamSettings();
+    }
 
     // initialize SD card before LED!!
     // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
@@ -871,6 +889,7 @@ void setup()
         }
     }
 
+    // Start threads for background frame publishing and serial handling // FIXME: Is this really necessary?
     if (!isTimelapseAnglerfish)
     {
         xTaskCreatePinnedToCore(
@@ -1186,42 +1205,76 @@ void loop()
         ArduinoOTA.handle();
 }
 
+void loadAnglerfishCamSettings(int tExposure)
+{
+    Serial.println("Resetting Camera Sensor Settings...");
+
+
+    sensor_t *s = esp_camera_sensor_get();
+    s->set_framesize(s, FRAMESIZE_XGA);
+    s->set_quality(s, 10);
+    s->set_framesize(s, FRAMESIZE_XGA);      // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
+    s->set_quality(s, 10);                   // 10 to 63
+    s->set_brightness(s, 0);                 // -2 to 2
+    s->set_contrast(s, 0);                   // -2 to 2
+    s->set_saturation(s, 0);                 // -2 to 2
+    s->set_special_effect(s, 0);             // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
+    s->set_whitebal(s, 0);                   // aka 'awb' in the UI; 0 = disable , 1 = enable
+    s->set_awb_gain(s, 0);                   // 0 = disable , 1 = enable
+    s->set_wb_mode(s, 0);                    // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
+    s->set_exposure_ctrl(s, 0);              // 0 = disable , 1 = enable
+    s->set_aec2(s, 0);                       // 0 = disable , 1 = enable
+    s->set_ae_level(s, 0);                   // -2 to 2
+    s->set_aec_value(s, tExposure);          // 0 to 1200
+    s->set_gain_ctrl(s, 0);                  // 0 = disable , 1 = enable
+    s->set_agc_gain(s, 0);                   // 0 to 30
+    s->set_gainceiling(s, (gainceiling_t)0); // 0 to 6
+    s->set_bpc(s, 0);                        // 0 = disable , 1 = enable
+    s->set_wpc(s, 1);                        // 0 = disable , 1 = enable
+    s->set_raw_gma(s, 1);                    // 0 = disable , 1 = enable
+    s->set_lenc(s, 0);                       // 0 = disable , 1 = enable
+    s->set_hmirror(s, 0);                    // 0 = disable , 1 = enable
+    s->set_vflip(s, 0);                      // 0 = disable , 1 = enable
+    s->set_dcw(s, 1);                        // 0 = disable , 1 = enable
+    s->set_colorbar(s, 0);                   // 0 = disable , 1 = enable
+    
+    // digest the settings => warmup camera
+    camera_fb_t *fb = NULL;
+    for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
+    {
+        // FIXME: Look at the buffer for the camera => flush vs. return
+        log_d("Capturing dummy frame %i", iDummyFrame);
+        fb = esp_camera_fb_get();
+        if (!fb)
+            log_e("Camera frame error", false);
+        esp_camera_fb_return(fb);
+
+        int mean_intensity = get_mean_intensity(fb);
+
+        Serial.print("Mean intensity: ");
+        Serial.println(mean_intensity);
+    }
+}
 
 void initAnglerfish(bool isTimelapseAnglerfish)
 {
 
     if (isTimelapseAnglerfish)
     {
+        // activate LED FIXME:
+        rtc_gpio_hold_dis(GPIO_NUM_4);
+
         // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
         Serial.println("In timelapse anglerfish mode.");
-        
+
         // load previous settings
-        loadPrefs(SPIFFS);
-        
+        // loadPrefs(SPIFFS);
+
         // override LED settings
         autoLamp = true;
         lampVal = 255;
         autoLamp = true;
         setLamp(lampVal);
-
-        // override  camera settings => max framesize
-        if (0)
-        {
-            sensor_t *s = esp_camera_sensor_get();
-            s->set_framesize(s, FRAMESIZE_QXGA);
-            s->set_quality(s, 10);
-        }
-
-        // warmup camera
-        camera_fb_t *fb = NULL;
-        for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
-        {
-            log_d("Capturing dummy frame %i", iDummyFrame);
-            fb = esp_camera_fb_get();
-            if (!fb)
-                log_e("Camera frame error", false);
-            esp_camera_fb_return(fb);
-        }
 
         // Save image to SD card
         uint32_t frame_index = device_pref.getFrameIndex() + 1;
@@ -1241,11 +1294,25 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         int stepSize = 10;
         int stepMin = 0;
         int stepMax = 100;
-        
+
+        // FIXME: Make a stack of exposure values
         if (device_pref.getAcquireStack())
             acquireFocusStack(filename, stepSize, stepMin = 0, stepMax = stepMax);
         else
-            saveImage(filename, 0);
+        {
+            // under expose
+            loadAnglerfishCamSettings(100);
+            saveImage(filename + "texp_1", 0);
+
+            // correctly expose
+            loadAnglerfishCamSettings(300);
+            saveImage(filename + "texp_2", 0);
+
+            // over expose
+            loadAnglerfishCamSettings(1000);
+            saveImage(filename + "texp_3", 0);
+        }
+
         imagesServed++;
 
         // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues?
@@ -1258,9 +1325,15 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         Serial.print(timelapseInterval);
         Serial.println(" s");
         static const uint64_t usPerSec = 1000000; // Conversion factor from microseconds to seconds
-        esp_sleep_enable_timer_wakeup(timelapseInterval * usPerSec);
-        SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
+        SD_MMC.end();                             // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
 
+        // turn off lamp entirely
+        pinMode(4, OUTPUT);
+        digitalWrite(4, LOW);
+        rtc_gpio_hold_en(GPIO_NUM_4); // Latch value when going into deep sleep
+
+        // go to deep sleep
+        esp_sleep_enable_timer_wakeup(timelapseInterval * usPerSec);
         esp_deep_sleep_start();
         return;
     }

@@ -10,7 +10,7 @@
 #include <WiFi.h>
 
 
-void initAnglerfishCamSettings()
+void initSpeciaCamSettings()
 {
     camera_fb_t *fb = NULL;
     sensor_t *s = esp_camera_sensor_get();
