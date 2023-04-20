@@ -46,6 +46,7 @@ extern void setLamp(int newVal);
 extern void setPWM(int newVal);
 extern void printLocalTime(bool extraData);
 extern void loadPrefs(fs::FS &fs);
+extern bool isTimelapseAnglerfish;
 
 bool saveImage(String filename, int lensValue=-1);
 
@@ -1365,7 +1366,7 @@ bool saveImage(String filename, int lensValue)
     }
 
     // load camera preferences into camera
-    loadPrefs(SPIFFS);
+    if (!isTimelapseAnglerfish) loadPrefs(SPIFFS);
 
     // set PWM value e.g. 
     if (lensValue>-1){

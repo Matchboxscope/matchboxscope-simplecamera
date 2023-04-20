@@ -138,6 +138,7 @@ unsigned long xclk = 8;
 // can be set in myconfig.h
 int myRotation = 0;
 bool isStackAcquired = false;
+bool isTimelapseAnglerfish = false;
 
 // minimal frame duration in ms, effectively 1/maxFPS
 int minFrameTime = 0;
@@ -794,13 +795,13 @@ void setup()
     bool isFirstRun = device_pref.isFirstRun();
     if (isFirstRun)
     {
-        device_pref.setTimelapseInterval(-1);
+        //device_pref.setTimelapseInterval(-1);
         device_pref.setIsTimelapseAnglerfish(false);
     }
     isStackAcquired = device_pref.getAcquireStack();
 
     // only for Anglerfish if already focussed
-    bool isTimelapseAnglerfish = device_pref.getIsTimelapseAnglerfish(); // set the global variable for the loop function
+    isTimelapseAnglerfish = device_pref.getIsTimelapseAnglerfish(); // set the global variable for the loop function
 
     // Debug info
     Serial.println();
@@ -823,12 +824,7 @@ void setup()
             delay(5000);
         }
     }
-    else
-    {
-        config.frame_size = FRAMESIZE_UXGA;
-        config.jpeg_quality = 3;
-        config.fb_count = 1;
-    }
+
 
     if (stationCount == 0)
     {
@@ -955,7 +951,7 @@ void setup()
     if (filesystem)
     {
         delay(200); // a short delay to let spi bus settle after camera init
-        loadPrefs(SPIFFS);
+        if (!isTimelapseAnglerfish) loadPrefs(SPIFFS);
         Serial.println("internal files System found and mounted");
     }
     else
@@ -1205,39 +1201,18 @@ void loop()
         ArduinoOTA.handle();
 }
 
-void loadAnglerfishCamSettings(int tExposure)
+void loadAnglerfishCamSettings(int tExposure, int mGain)
 {
     Serial.println("Resetting Camera Sensor Settings...");
 
+    // Apply manual settings for the camera
+    sensor_t * s = esp_camera_sensor_get();
+    s->set_framesize(s, FRAMESIZE_QVGA);
+    s->set_gain_ctrl(s, 0); // auto gain off (1 or 0)
+    s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
+    s->set_agc_gain(s, mGain); // set gain manually (0 - 30)
+    s->set_aec_value(s, tExposure); // set exposure manually (0-1200)
 
-    sensor_t *s = esp_camera_sensor_get();
-    s->set_framesize(s, FRAMESIZE_XGA);
-    s->set_quality(s, 10);
-    s->set_framesize(s, FRAMESIZE_XGA);      // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
-    s->set_quality(s, 10);                   // 10 to 63
-    s->set_brightness(s, 0);                 // -2 to 2
-    s->set_contrast(s, 0);                   // -2 to 2
-    s->set_saturation(s, 0);                 // -2 to 2
-    s->set_special_effect(s, 0);             // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
-    s->set_whitebal(s, 0);                   // aka 'awb' in the UI; 0 = disable , 1 = enable
-    s->set_awb_gain(s, 0);                   // 0 = disable , 1 = enable
-    s->set_wb_mode(s, 0);                    // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
-    s->set_exposure_ctrl(s, 0);              // 0 = disable , 1 = enable
-    s->set_aec2(s, 0);                       // 0 = disable , 1 = enable
-    s->set_ae_level(s, 0);                   // -2 to 2
-    s->set_aec_value(s, tExposure);          // 0 to 1200
-    s->set_gain_ctrl(s, 0);                  // 0 = disable , 1 = enable
-    s->set_agc_gain(s, 0);                   // 0 to 30
-    s->set_gainceiling(s, (gainceiling_t)0); // 0 to 6
-    s->set_bpc(s, 0);                        // 0 = disable , 1 = enable
-    s->set_wpc(s, 1);                        // 0 = disable , 1 = enable
-    s->set_raw_gma(s, 1);                    // 0 = disable , 1 = enable
-    s->set_lenc(s, 0);                       // 0 = disable , 1 = enable
-    s->set_hmirror(s, 0);                    // 0 = disable , 1 = enable
-    s->set_vflip(s, 0);                      // 0 = disable , 1 = enable
-    s->set_dcw(s, 1);                        // 0 = disable , 1 = enable
-    s->set_colorbar(s, 0);                   // 0 = disable , 1 = enable
-    
     // digest the settings => warmup camera
     camera_fb_t *fb = NULL;
     for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
@@ -1301,16 +1276,29 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         else
         {
             // under expose
-            loadAnglerfishCamSettings(100);
+            loadAnglerfishCamSettings(1,0);
             saveImage(filename + "texp_1", 0);
 
-            // correctly expose
-            loadAnglerfishCamSettings(300);
-            saveImage(filename + "texp_2", 0);
+            // over expose
+            loadAnglerfishCamSettings(5,0);
+            saveImage(filename + "texp_5", 0);
 
             // over expose
-            loadAnglerfishCamSettings(1000);
-            saveImage(filename + "texp_3", 0);
+            loadAnglerfishCamSettings(10,0);
+            saveImage(filename + "texp_10", 0);
+
+            // over expose
+            loadAnglerfishCamSettings(50,0);
+            saveImage(filename + "texp_50", 0);
+
+            // over expose
+            loadAnglerfishCamSettings(100,0);
+            saveImage(filename + "texp_100", 0);
+
+            // over expose
+            loadAnglerfishCamSettings(500,0);
+            saveImage(filename + "texp_500", 0);
+
         }
 
         imagesServed++;
