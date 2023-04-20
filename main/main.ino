@@ -796,6 +796,7 @@ void setup()
     if (isFirstRun)
     {
         //device_pref.setTimelapseInterval(-1);
+        removePrefs(SPIFFS);
         device_pref.setIsTimelapseAnglerfish(false);
     }
     isStackAcquired = device_pref.getAcquireStack();
