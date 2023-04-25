@@ -267,3 +267,17 @@ bool isFirstBoot(fs::FS &fs) {
   
   return !stored_date.equals(compiled_date);
 }
+
+bool getIsTimelapseAnglerfish(fs::FS &fs) {
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  if (mConfig.containsKey("isTimelapseAnglerfish"))
+    return mConfig["isTimelapseAnglerfish"];
+  else
+    return false;
+}
+
+void setIsTimelapseAnglerfish(fs::FS &fs, bool isTimelapseAnglerfish) {
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  mConfig["isTimelapseAnglerfish"] = isTimelapseAnglerfish;
+  savePrefs(SPIFFS);
+}

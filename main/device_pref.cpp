@@ -5,27 +5,7 @@
 
 
 
-// Timelapse mode
 
-static const char timelapseKey[] = "is_timelapse";
-bool DevicePreferences::getIsTimelapseAnglerfish() {
-  preferences.begin(group_name, true);
-  bool value = preferences.getBool(timelapseKey, false);
-  Serial.print("Getting timelapse value: "); Serial.println(value);
-  preferences.end();
-  return value;
-}
-
-void DevicePreferences::setIsTimelapseAnglerfish(bool value) {
-  Serial.print("Setting up timelapse: "); Serial.println(value);
-  preferences.begin(group_name, false);
-  preferences.putBool(timelapseKey, value);
-  bool value1 = preferences.getBool(timelapseKey, false);
-  Serial.print("Getting timelapse value 2: "); Serial.println(value1);
-  preferences.end();
-
-
-}
 
 // Wifi settings
 static const char wifissidKey[] = "wifi_ssid";

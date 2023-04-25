@@ -12,4 +12,9 @@ extern void removePrefs(fs::FS &fs);
 extern void savePrefs(fs::FS &fs);
 extern bool isFirstBoot(fs::FS &fs);
 
+// Anglerfish Modes 
+extern bool getIsTimelapseAnglerfish(fs::FS &fs);
+extern void setIsTimelapseAnglerfish(fs::FS &fs, bool value);
+
+
 extern void filesystemStart();

@@ -797,12 +797,12 @@ void setup()
     {
         //device_pref.setTimelapseInterval(-1);
         removePrefs(SPIFFS);
-        device_pref.setIsTimelapseAnglerfish(false);
+        setIsTimelapseAnglerfish(SPIFFS, false);
     }
     isStackAcquired = device_pref.getAcquireStack();
 
     // only for Anglerfish if already focussed
-    isTimelapseAnglerfish = device_pref.getIsTimelapseAnglerfish(); // set the global variable for the loop function
+    isTimelapseAnglerfish = getIsTimelapseAnglerfish(SPIFFS); // set the global variable for the loop function
 
     // Debug info
     Serial.println();
@@ -860,7 +860,7 @@ void setup()
         Serial.println("SD Card Mount Failed");
         // FIXME: This should be indicated in the GUI
         sdInitialized = false;
-        device_pref.setIsTimelapseAnglerfish(false); // FIXME: if SD card is missing => streaming mode!
+        setIsTimelapseAnglerfish(SPIFFS,false); // FIXME: if SD card is missing => streaming mode!
         isTimelapseAnglerfish = false;
         // Flash the LED to show SD card is not connected
         for (int i = 0; i < 20; i++)
@@ -1081,11 +1081,7 @@ void setup()
     while (Serial.available())
         Serial.read();
 
-    // save image to github
-    // sendToGithubFlag=true;
 
-    // device_pref.setIsTimelapseAnglerfish(1);
-    // device_pref.getIsTimelapseAnglerfish();
 }
 
 void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int stepMax = 100)

@@ -8,8 +8,6 @@ class DevicePreferences {
     ) :
       preferences(preferences), group_name(group_name), compiled_date(compiled_date) {}
     
-    bool getIsTimelapseAnglerfish();
-    void setIsTimelapseAnglerfish(bool value);
     void setWifiSSID(String value);
     void setWifiPW(String value);
     String getWifiSSID();    
