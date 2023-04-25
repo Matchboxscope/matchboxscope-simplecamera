@@ -1,6 +1,7 @@
 #include "esp_camera.h"
 #include "jsonlib.h"
 #include "storage.h"
+#include <ArduinoJson.h>
 
 // These are defined in the main .ino file
 extern void flashLED(int flashtime);
@@ -142,43 +143,47 @@ void savePrefs(fs::FS &fs){
     Serial.printf("Creating %s\r\n", PREFERENCES_FILE);
   }
   File file = fs.open(PREFERENCES_FILE, FILE_WRITE);
-  static char json_response[1024];
+  
   sensor_t * s = esp_camera_sensor_get();
-  char * p = json_response;
-  *p++ = '{';
-  p+=sprintf(p, "\"lamp\":%i,", lampVal);
-  p+=sprintf(p, "\"autolamp\":%u,", autoLamp);
-  p+=sprintf(p, "\"framesize\":%u,", s->status.framesize);
-  p+=sprintf(p, "\"quality\":%u,", s->status.quality);
-  p+=sprintf(p, "\"xclk\":%u,", xclk);
-  p+=sprintf(p, "\"min_frame_time\":%d,", minFrameTime);
-  p+=sprintf(p, "\"brightness\":%d,", s->status.brightness);
-  p+=sprintf(p, "\"contrast\":%d,", s->status.contrast);
-  p+=sprintf(p, "\"saturation\":%d,", s->status.saturation);
-  p+=sprintf(p, "\"special_effect\":%u,", s->status.special_effect);
-  p+=sprintf(p, "\"wb_mode\":%u,", s->status.wb_mode);
-  p+=sprintf(p, "\"awb\":%u,", s->status.awb);
-  p+=sprintf(p, "\"awb_gain\":%u,", s->status.awb_gain);
-  p+=sprintf(p, "\"aec\":%u,", s->status.aec);
-  p+=sprintf(p, "\"aec2\":%u,", s->status.aec2);
-  p+=sprintf(p, "\"ae_level\":%d,", s->status.ae_level);
-  p+=sprintf(p, "\"aec_value\":%u,", s->status.aec_value);
-  p+=sprintf(p, "\"agc\":%u,", s->status.agc);
-  p+=sprintf(p, "\"agc_gain\":%u,", s->status.agc_gain);
-  p+=sprintf(p, "\"gainceiling\":%u,", s->status.gainceiling);
-  p+=sprintf(p, "\"bpc\":%u,", s->status.bpc);
-  p+=sprintf(p, "\"wpc\":%u,", s->status.wpc);
-  p+=sprintf(p, "\"raw_gma\":%u,", s->status.raw_gma);
-  p+=sprintf(p, "\"lenc\":%u,", s->status.lenc);
-  p+=sprintf(p, "\"vflip\":%u,", s->status.vflip);
-  p+=sprintf(p, "\"hmirror\":%u,", s->status.hmirror);
-  p+=sprintf(p, "\"dcw\":%u,", s->status.dcw);
-  p+=sprintf(p, "\"colorbar\":%u,", s->status.colorbar);
-  p+=sprintf(p, "\"rotate\":\"%d\"", myRotation);
-  *p++ = '}';
-  *p++ = 0;
-  file.print(json_response);
-  file.close();
+
+  // save it to an arduinojson document
+  DynamicJsonDocument jsonDoc(1024);
+  jsonDoc["lamp"] = lampVal;
+  jsonDoc["autolamp"] = autoLamp;
+  jsonDoc["framesize"] = s->status.framesize;
+  jsonDoc["quality"] = s->status.quality;
+  jsonDoc["xclk"] = xclk;
+  jsonDoc["min_frame_time"] = minFrameTime;
+  jsonDoc["brightness"] = s->status.brightness;
+  jsonDoc["contrast"] = s->status.contrast;
+  jsonDoc["saturation"] = s->status.saturation;
+  jsonDoc["special_effect"] = s->status.special_effect;
+  jsonDoc["wb_mode"] = s->status.wb_mode;
+  jsonDoc["awb"] = s->status.awb;
+  jsonDoc["awb_gain"] = s->status.awb_gain;
+  jsonDoc["aec"] = s->status.aec;
+  jsonDoc["aec2"] = s->status.aec2;
+  jsonDoc["ae_level"] = s->status.ae_level;
+  jsonDoc["aec_value"] = s->status.aec_value;
+  jsonDoc["agc"] = s->status.agc;
+  jsonDoc["agc_gain"] = s->status.agc_gain;
+  jsonDoc["gainceiling"] = s->status.gainceiling;
+  jsonDoc["bpc"] = s->status.bpc;
+  jsonDoc["wpc"] = s->status.wpc;
+  jsonDoc["raw_gma"] = s->status.raw_gma;
+  jsonDoc["lenc"] = s->status.lenc;
+  jsonDoc["vflip"] = s->status.vflip;
+  jsonDoc["hmirror"] = s->status.hmirror;
+  jsonDoc["dcw"] = s->status.dcw;
+  jsonDoc["colorbar"] = s->status.colorbar;
+  jsonDoc["rotate"] = String(myRotation);
+
+  serializeJsonPretty(jsonDoc, Serial); // print the JSON object to Serial
+  String jsonString;
+  serializeJson(jsonDoc, jsonString);
+
+  // Write the JSON string to the file
+  file.print(jsonString);
   dumpPrefs(SPIFFS);
 }
 
@@ -192,6 +197,7 @@ void removePrefs(fs::FS &fs) {
     Serial.println("No saved preferences file to remove");
   }
 }
+
 
 void filesystemStart(){
   Serial.println("Starting internal SPIFFS filesystem");
@@ -208,4 +214,56 @@ void filesystemStart(){
     Serial.println("Retrying..");
   }
   listDir(SPIFFS, "/", 0);
+}
+
+
+/* Functions from Device Pref*/
+
+// Read the device preferences from the filesystem and return a arduinojson dictionary
+
+DynamicJsonDocument jsonDoc(1024); // create a dynamic JSON document with a capacity of 1024 bytes
+DynamicJsonDocument readConfig(fs::FS &fs) {
+  char filePath[] = PREFERENCES_FILE;
+  File file = SPIFFS.open(filePath, "r"); // open the file in read mode
+  if (!file) {
+    Serial.println("Failed to open file for reading");
+    return jsonDoc; // return an empty JSON object
+  }
+
+  // read the file into a string
+  String fileContent = "";
+  while (file.available()) {
+    fileContent += (char)file.read();
+  }
+
+  // parse the string into a JSON object
+  DeserializationError error = deserializeJson(jsonDoc, fileContent);
+  if (error) {
+    Serial.println("Failed to parse JSON file");
+    return jsonDoc; // return an empty JSON object
+  }
+
+  return jsonDoc; // return the parsed JSON object
+}
+
+bool isFirstBoot(fs::FS &fs) {
+  // get compiled date/time
+  static const char compiled_date[] PROGMEM = __DATE__ " " __TIME__;
+  
+  // FIXME: What if stored_date is not set yet?
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  String stored_date = mConfig["stored_date"];
+  
+  Serial.print("First run? ");
+  if (!stored_date.equals(compiled_date)) {
+    Serial.println("yes");
+  } else {
+    Serial.println("no");
+  }
+  mConfig["stored_date"] = compiled_date;
+  savePrefs(SPIFFS);
+  return !stored_date.equals(compiled_date);
+  
+  
+  return !stored_date.equals(compiled_date);
 }

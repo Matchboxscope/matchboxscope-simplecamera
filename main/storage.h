@@ -10,5 +10,6 @@ extern void dumpPrefs(fs::FS &fs);
 extern void loadPrefs(fs::FS &fs);
 extern void removePrefs(fs::FS &fs);
 extern void savePrefs(fs::FS &fs);
+extern bool isFirstBoot(fs::FS &fs);
 
 extern void filesystemStart();

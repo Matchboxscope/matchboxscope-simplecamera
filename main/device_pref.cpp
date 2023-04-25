@@ -3,28 +3,7 @@
 #include "device_pref.h"
 // First-run detection
 
-static const char dateKey[] = "date";
 
-bool DevicePreferences::isFirstRun() {
-  preferences.begin(group_name, false);
-  String stored_date = preferences.getString(dateKey, "");  // FIXME
-
-  Serial.println("Stored date:");
-  Serial.println(stored_date);
-  Serial.println("Compiled date:");
-  Serial.println(compiled_date);
-
-  Serial.print("First run? ");
-  if (!stored_date.equals(compiled_date)) {
-    Serial.println("yes");
-  } else {
-    Serial.println("no");
-  }
-
-  preferences.putString(dateKey, compiled_date); // FIXME?
-  preferences.end();
-  return !stored_date.equals(compiled_date);
-}
 
 // Timelapse mode
 

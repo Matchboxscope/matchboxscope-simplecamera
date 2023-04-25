@@ -792,7 +792,7 @@ void setup()
     Serial.setDebugOutput(true);
 
     // actions done after first flashing
-    bool isFirstRun = device_pref.isFirstRun();
+    bool isFirstRun = isFirstBoot(SPIFFS);
     if (isFirstRun)
     {
         //device_pref.setTimelapseInterval(-1);
