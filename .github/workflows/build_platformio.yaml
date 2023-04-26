@@ -14,6 +14,8 @@ jobs:
   build:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.API_TOKEN_GITHUB }}
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
@@ -37,10 +39,11 @@ jobs:
       uses: jacobtomlinson/gha-find-replace@v2
       with:
         find: '#include "githubtoken.h"'
-        replace: 'const char* GITHUB_TOKEN = "";'
+        #replace: 'const char* GITHUB_TOKEN = "";'
+        replace: "const char* GITHUB_TOKEN = '${{ secrets.API_TOKEN_GITHUB }};'"
         regex: false
 
-    # run for WEMOS => pindef.h
+    # run ESP32-CAM
     - name: Run PlatformIO
       run: pio run 
     - name: merge into one binary
