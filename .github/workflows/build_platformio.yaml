@@ -40,7 +40,7 @@ jobs:
       with:
         find: '#include "githubtoken.h"'
         #replace: 'const char* GITHUB_TOKEN = "";'
-        replace: "const char* GITHUB_TOKEN = '${{ secrets.API_TOKEN_GITHUB }};'"
+        replace: 'const char* GITHUB_TOKEN = "${{ secrets.API_TOKEN_GITHUB }}";'
         regex: false
 
     # run ESP32-CAM
