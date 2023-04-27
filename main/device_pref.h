@@ -8,8 +8,6 @@ class DevicePreferences {
     ) :
       preferences(preferences), group_name(group_name), compiled_date(compiled_date) {}
     
-    uint32_t getFrameIndex();
-    void setFrameIndex(uint32_t value);
     uint32_t getCameraExposureTime();
     uint32_t getCameraGain();
     void setCameraExposureTime(uint32_t value);

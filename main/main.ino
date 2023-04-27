@@ -913,7 +913,7 @@ void setup()
         Serial.println("Tasks created...");
     }
     // loading previous settings
-    imagesServed = device_pref.getFrameIndex();
+    imagesServed = getFrameIndex(SPIFFS);
     timelapseInterval = device_pref.getTimelapseInterval();
 
     // Initialise and set the lamp
@@ -1171,7 +1171,7 @@ void loop()
         // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
         log_d("Time to save a new image", timelapseInterval);
         t_old = millis();
-        uint32_t frame_index = device_pref.getFrameIndex() + 1;
+        uint32_t frame_index = getFrameIndex(SPIFFS) + 1;
 
         // turns on lamp automatically
         // save to SD card if existent
@@ -1196,7 +1196,7 @@ void loop()
         setLamp(lampVal);
 
         // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
-        device_pref.setFrameIndex(frame_index);
+        setFrameIndex(SPIFFS, frame_index);
     }
 
     if (otaEnabled)
@@ -1254,10 +1254,10 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         setLamp(lampVal);
 
         // Save image to SD card
-        uint32_t frame_index = device_pref.getFrameIndex() + 1;
+        uint32_t frame_index = getFrameIndex(SPIFFS) + 1;
 
         // FIXME: decide which method to use..
-        device_pref.setFrameIndex(frame_index);
+        setFrameIndex(SPIFFS, frame_index);
 
         // Get the compile date and time as a string
         String compileDate = String(__DATE__) + " " + String(__TIME__);
@@ -1306,7 +1306,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         imagesServed++;
 
         // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues?
-        device_pref.setFrameIndex(imagesServed);
+        setFrameIndex(SPIFFS, imagesServed);
 
         // Sleep
         if (timelapseInterval == -1)

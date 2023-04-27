@@ -278,7 +278,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
         Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
     }
     imagesServed++;
-    device_pref_http.setFrameIndex(imagesServed);
+    setFrameIndex(SPIFFS, imagesServed);
     if (autoLamp && (lampVal != -1))
     {
         setLamp(0);

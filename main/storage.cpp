@@ -344,10 +344,10 @@ String getWifiSSID(fs::FS &fs)
     return "";
 }
 
-void setWifiSSID(fs::FS &fs, String wifiSSID)
+void setWifiSSID(fs::FS &fs, String value)
 {
   DynamicJsonDocument mConfig = readConfig(SPIFFS);
-  mConfig[wifissidKey] = wifiSSID;
+  mConfig[wifissidKey] = value;
   savePrefs(SPIFFS);
 }
 
@@ -361,11 +361,27 @@ String getWifiPW(fs::FS &fs)
     return "";
 }
 
-void setWifiPW(fs::FS &fs, String wifiSSID)
+void setWifiPW(fs::FS &fs, String value)
 {
   DynamicJsonDocument mConfig = readConfig(SPIFFS);
-  mConfig[wifipwKey] = wifipwKey;
+  mConfig[wifipwKey] = value;
   savePrefs(SPIFFS);
 }
 
+static const char frameIndexKey[] = "frame_index";
+uint32_t getFrameIndex(fs::FS &fs)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  if (mConfig.containsKey(frameIndexKey))
+    return mConfig[frameIndexKey];
+  else
+    return -1;
+}
+
+void setFrameIndex(fs::FS &fs, int value)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  mConfig[frameIndexKey] = value;
+  savePrefs(SPIFFS);
+}
 

@@ -20,4 +20,8 @@ extern void setWifiSSID(fs::FS &fs, String value);
 extern String getWifiPW(fs::FS &fs);
 extern void setWifiPW(fs::FS &fs, String value);
 
+extern uint32_t getFrameIndex(fs::FS &fs);
+extern void setFrameIndex(fs::FS &fs, int value);
+
+
 extern void filesystemStart();

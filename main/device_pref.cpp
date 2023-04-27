@@ -11,21 +11,6 @@
 
 // Timelapse frame indexing
 
-static const char frameIndexKey[] = "frame_index";
-
-uint32_t DevicePreferences::getFrameIndex() {
-  preferences.begin(group_name, true);
-  uint32_t value = preferences.getUInt(frameIndexKey, 0);
-  preferences.end();
-  return value;
-}
-
-void DevicePreferences::setFrameIndex(uint32_t value) {
-  preferences.begin(group_name, false);
-  preferences.putUInt(frameIndexKey, value);
-  preferences.end();
-}
-
 // Camera settings (MAKE SURE NAME IS SHORT!
 static const char exposuretimeKey[] = "cameraExpT";
 static const char gainKey[] = "cameraGain";
