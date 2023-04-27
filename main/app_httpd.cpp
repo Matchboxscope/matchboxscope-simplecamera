@@ -533,7 +533,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     else if (!strcmp(variable, "stack")){
         Serial.print("Changing stack is enable to: ");
         Serial.println(val);
-        device_pref_http.setAcquireStack(val);
+        setAcquireStack(SPIFFS, val);
     }
     else if (!strcmp(variable, "timelapse")){
         Serial.print("Changing timelapse is enable to: ");

@@ -19,8 +19,6 @@ class DevicePreferences {
     void setCameraEffect(uint32_t value);
     uint32_t getCameraEffect();
 
-    void setAcquireStack(bool value);
-    bool getAcquireStack();
 
 
 

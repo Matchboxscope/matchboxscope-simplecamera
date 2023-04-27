@@ -849,7 +849,7 @@ void setup()
         removePrefs(SPIFFS);
         setIsTimelapseAnglerfish(SPIFFS, false);
     }
-    isStackAcquired = device_pref.getAcquireStack();
+    isStackAcquired = getAcquireStack(SPIFFS);
 
     // only for Anglerfish if already focussed
     isTimelapseAnglerfish = getIsTimelapseAnglerfish(SPIFFS); // set the global variable for the loop function
@@ -1177,7 +1177,7 @@ void loop()
         // save to SD card if existent
 
         String filename = "/timelapse_image" + String(imagesServed);
-        if (device_pref.getAcquireStack())
+        if (getAcquireStack(SPIFFS))
         { // FIXME: We could have a switch in the GUI for this settig
             // acquire a stack
             // FIXME: decide which method to use..
@@ -1273,7 +1273,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         int stepMax = 100;
 
         // FIXME: Make a stack of exposure values
-        if (device_pref.getAcquireStack())
+        if (getAcquireStack(SPIFFS))
             acquireFocusStack(filename, stepSize, stepMin = 0, stepMax = stepMax);
         else
         {

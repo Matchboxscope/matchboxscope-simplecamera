@@ -385,3 +385,21 @@ void setFrameIndex(fs::FS &fs, int value)
   savePrefs(SPIFFS);
 }
 
+
+static const char isStackKey[] = "isStack";
+bool getAcquireStack(fs::FS &fs)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  if (mConfig.containsKey(isStackKey))
+    return mConfig[isStackKey];
+  else
+    return -1;
+}
+
+void setAcquireStack(fs::FS &fs, bool value)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  mConfig[isStackKey] = value;
+  savePrefs(SPIFFS);
+}
+

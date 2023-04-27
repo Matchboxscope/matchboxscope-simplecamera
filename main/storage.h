@@ -22,6 +22,7 @@ extern void setWifiPW(fs::FS &fs, String value);
 
 extern uint32_t getFrameIndex(fs::FS &fs);
 extern void setFrameIndex(fs::FS &fs, int value);
-
+extern bool getAcquireStack(fs::FS &fs);
+extern void setAcquireStack(fs::FS &fs, bool value);
 
 extern void filesystemStart();
