@@ -28,7 +28,7 @@
 #include <SD_MMC.h>
 #include <SPIFFS.h>
 #include <FS.h>
-#include "device_pref.h"
+
 
 #include "index_ov2640.h"
 #include "index_ov3660.h"
@@ -86,9 +86,6 @@ extern unsigned long xclk;
 extern int sensorPID;
 extern int sdInitialized;
 
-//extern DevicePreferences device_pref_http;
-Preferences pref_http;
-DevicePreferences device_pref_http(pref_http, "camera", __DATE__ " " __TIME__);
 
 bool IS_STREAM_PAUSE = false;
 
@@ -539,7 +536,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.print("Changing timelapse is enable to: ");
         Serial.println(val);
         if (val == 0)
-            device_pref_http.setTimelapseInterval(-1);
+            setTimelapseInterval(SPIFFS, -1);
             //FIXME: We need to have a proper switch not just a value - won't work! 
     }
     else if (!strcmp(variable, "lenc"))
@@ -594,7 +591,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.print("Changing timelapse interval to: ");
         Serial.println(val);
         timelapseInterval = val;
-        device_pref_http.setTimelapseInterval(timelapseInterval);
+        setTimelapseInterval(SPIFFS, timelapseInterval);
     }
     else if (!strcmp(variable, "save_prefs"))
     {

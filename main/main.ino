@@ -11,7 +11,6 @@
 // #include "improv.h"
 // #include "improvSerial.h"
 #include <SD_MMC.h>
-#include "device_pref.h"
 #include "ArduinoJson.h"
 #include "esp_bt.h"
 #include "esp_gap_ble_api.h"
@@ -123,9 +122,6 @@ int8_t streamCount = 0;          // Number of currently active streams
 unsigned long streamsServed = 0; // Total completed streams
 unsigned long imagesServed = 0;  // Total image requests
 
-// Preferences
-Preferences pref;
-DevicePreferences device_pref(pref, "camera", __DATE__ " " __TIME__);
 
 // This will be displayed to identify the firmware
 char myVer[] PROGMEM = __DATE__ " @ " __TIME__;
@@ -845,7 +841,7 @@ void setup()
     bool isFirstRun = isFirstBoot(SPIFFS);
     if (isFirstRun)
     {
-        //device_pref.setTimelapseInterval(-1);
+        setTimelapseInterval(SPIFFS, -1);
         removePrefs(SPIFFS);
         setIsTimelapseAnglerfish(SPIFFS, false);
     }
@@ -914,7 +910,7 @@ void setup()
     }
     // loading previous settings
     imagesServed = getFrameIndex(SPIFFS);
-    timelapseInterval = device_pref.getTimelapseInterval();
+    timelapseInterval = getTimelapseInterval(SPIFFS);
 
     // Initialise and set the lamp
     if (lampVal != -1)
@@ -1164,7 +1160,7 @@ void loop()
     */
     // Timelapse Imaging
     // Perform timelapse imaging
-    timelapseInterval = device_pref.getTimelapseInterval();
+    timelapseInterval = getTimelapseInterval(SPIFFS);
     if (timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
     {
         savePrefs(SPIFFS);

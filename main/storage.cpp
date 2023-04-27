@@ -403,3 +403,22 @@ void setAcquireStack(fs::FS &fs, bool value)
   savePrefs(SPIFFS);
 }
 
+static const char timelapseIntervalKey[] = "cameraTLI";
+uint32_t getTimelapseInterval(fs::FS &fs)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  if (mConfig.containsKey(timelapseIntervalKey))
+    return mConfig[timelapseIntervalKey];
+  else
+    return -1;
+}
+
+void setTimelapseInterval(fs::FS &fs, uint32_t value)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  mConfig[timelapseIntervalKey] = value;
+  savePrefs(SPIFFS);
+}
+
+
+

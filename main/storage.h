@@ -24,5 +24,7 @@ extern uint32_t getFrameIndex(fs::FS &fs);
 extern void setFrameIndex(fs::FS &fs, int value);
 extern bool getAcquireStack(fs::FS &fs);
 extern void setAcquireStack(fs::FS &fs, bool value);
+uint32_t getTimelapseInterval(fs::FS &fs);
+void setTimelapseInterval(fs::FS &fs, uint32_t value);
 
 extern void filesystemStart();
