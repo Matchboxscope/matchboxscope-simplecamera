@@ -122,7 +122,7 @@ void savePrefs(fs::FS &fs)
   jsonDoc["rotate"] = String(myRotation);
 
   // FIXME: ADD ALL THE values from the json document to variabels!
-
+  log_d("Serialize");
   serializeJsonPretty(jsonDoc, Serial); // print the JSON object to Serial
   String jsonString;
   serializeJson(jsonDoc, jsonString);

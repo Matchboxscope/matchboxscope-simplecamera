@@ -13,7 +13,12 @@
 #include <SD_MMC.h>
 #include "device_pref.h"
 #include "ArduinoJson.h"
+#include "esp_bt.h"
+#include "esp_gap_ble_api.h"
 
+
+
+        
 #include "anglerfishcamsettings.h"
 
 /* This sketch is a extension/expansion/reork of the 'official' ESP32 Camera example
@@ -728,6 +733,13 @@ void WifiSetup()
         gw = WiFi.gatewayIP();
         strcpy(apName, stationList[0].ssid);
         Serial.printf("IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
+        // display IP Address as Bluetooth ID
+        /* FIXME: Too much memory consumption :(
+        esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+        esp_bt_controller_init(&bt_cfg);
+        esp_bt_controller_enable(ESP_BT_MODE_BLE);
+        esp_ble_gap_set_device_name(WiFi.localIP().toString().c_str());
+        */
         calcURLs();
         // Flash the LED to show we are connected
         for (int i = 0; i < 5; i++)
@@ -791,18 +803,6 @@ void setup()
     Serial.begin(115200);
     Serial.setDebugOutput(true);
 
-    // actions done after first flashing
-    bool isFirstRun = isFirstBoot(SPIFFS);
-    if (isFirstRun)
-    {
-        //device_pref.setTimelapseInterval(-1);
-        removePrefs(SPIFFS);
-        setIsTimelapseAnglerfish(SPIFFS, false);
-    }
-    isStackAcquired = device_pref.getAcquireStack();
-
-    // only for Anglerfish if already focussed
-    isTimelapseAnglerfish = getIsTimelapseAnglerfish(SPIFFS); // set the global variable for the loop function
 
     // Debug info
     Serial.println();
@@ -827,16 +827,6 @@ void setup()
     }
 
 
-    if (stationCount == 0)
-    {
-        Serial.println("\r\nFatal Error; Halting");
-        while (true)
-        {
-            Serial.println("No wifi details have been configured; we cannot connect to existing WiFi or start our own AccessPoint, there is no point in proceeding.");
-            delay(5000);
-        }
-    }
-
     // Start the SPIFFS filesystem before we initialise the camera
     if (filesystem)
     {
@@ -850,6 +840,21 @@ void setup()
     {
         // initSpeciaCamSettings();
     }
+
+    // actions done after first flashing
+    bool isFirstRun = isFirstBoot(SPIFFS);
+    if (isFirstRun)
+    {
+        //device_pref.setTimelapseInterval(-1);
+        removePrefs(SPIFFS);
+        setIsTimelapseAnglerfish(SPIFFS, false);
+    }
+    isStackAcquired = device_pref.getAcquireStack();
+
+    // only for Anglerfish if already focussed
+    isTimelapseAnglerfish = getIsTimelapseAnglerfish(SPIFFS); // set the global variable for the loop function
+
+
 
     // initialize SD card before LED!!
     // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
