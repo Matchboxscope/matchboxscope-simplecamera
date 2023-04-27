@@ -233,8 +233,8 @@ void handleSerial()
             }
 
             Serial.println("Connected to Wi-Fi!");
-            device_pref.setWifiPW(mssid);
-            device_pref.setWifiSSID(mpassword);
+            setWifiPW(SPIFFS,mssid);
+            setWifiSSID(SPIFFS,mpassword);
         }
         if (doc.containsKey("wifiap"))
         {
@@ -605,7 +605,7 @@ void WifiSetup()
             Serial.println("No known networks found, Trying existing one from perferences.. (set via serial..)");
             // try existing SSID from prefes
             // Initiate network connection request (3rd argument, channel = 0 is 'auto')
-            WiFi.begin(device_pref.getWifiSSID().c_str(), device_pref.getWifiPW().c_str());
+            WiFi.begin(getWifiSSID(SPIFFS).c_str(), getWifiPW(SPIFFS).c_str());
 
             // Wait to connect, or timeout
             unsigned long start = millis();
@@ -665,7 +665,7 @@ void WifiSetup()
 
             // try existing SSID from prefes
             // Initiate network connection request (3rd argument, channel = 0 is 'auto')
-            WiFi.begin(device_pref.getWifiSSID().c_str(), device_pref.getWifiPW().c_str());
+            WiFi.begin(getWifiSSID(SPIFFS).c_str(), getWifiPW(SPIFFS).c_str());
 
             // Wait to connect, or timeout
             unsigned long start = millis();

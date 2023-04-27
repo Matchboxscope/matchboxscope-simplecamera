@@ -332,3 +332,40 @@ void setIsTimelapseAnglerfish(fs::FS &fs, bool isTimelapseAnglerfish)
   mConfig["isTimelapseAnglerfish"] = isTimelapseAnglerfish;
   savePrefs(SPIFFS);
 }
+
+
+static const char wifissidKey[] = "wifi_ssid";
+String getWifiSSID(fs::FS &fs)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  if (mConfig.containsKey(wifissidKey))
+    return mConfig[wifissidKey];
+  else
+    return "";
+}
+
+void setWifiSSID(fs::FS &fs, String wifiSSID)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  mConfig[wifissidKey] = wifiSSID;
+  savePrefs(SPIFFS);
+}
+
+static const char wifipwKey[] = "wifi_pw";
+String getWifiPW(fs::FS &fs)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  if (mConfig.containsKey(wifipwKey))
+    return mConfig[wifipwKey];
+  else
+    return "";
+}
+
+void setWifiPW(fs::FS &fs, String wifiSSID)
+{
+  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  mConfig[wifipwKey] = wifipwKey;
+  savePrefs(SPIFFS);
+}
+
+

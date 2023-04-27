@@ -7,34 +7,7 @@
 
 
 
-// Wifi settings
-static const char wifissidKey[] = "wifi_ssid";
-void DevicePreferences::setWifiSSID(String value) {
-  preferences.begin(group_name, true);
-  preferences.putString(value.c_str(), "Test");
-  preferences.end();
-}
 
-String DevicePreferences::getWifiSSID() {
-  preferences.begin(group_name, true);
-  String value = preferences.getString(wifissidKey, "Blynk");
-  preferences.end();
-  return value;
-}
-
-static const char wifipwKey[] = "wifi_pw";
-void DevicePreferences::setWifiPW(String value) {
-  preferences.begin(group_name, true);
-  preferences.putString(value.c_str(), wifissidKey);
-  preferences.end();
-}
-
-String DevicePreferences::getWifiPW() {
-  preferences.begin(group_name, true);
-  String value = preferences.getString(wifipwKey, "12345678");
-  preferences.end();
-  return value;
-}
 
 // Timelapse frame indexing
 

@@ -8,11 +8,6 @@ class DevicePreferences {
     ) :
       preferences(preferences), group_name(group_name), compiled_date(compiled_date) {}
     
-    void setWifiSSID(String value);
-    void setWifiPW(String value);
-    String getWifiSSID();    
-    String getWifiPW();
-
     uint32_t getFrameIndex();
     void setFrameIndex(uint32_t value);
     uint32_t getCameraExposureTime();
