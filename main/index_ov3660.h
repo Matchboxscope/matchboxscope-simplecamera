@@ -329,7 +329,7 @@ const uint8_t index_ov3660_html[] = R"=====(<!doctype html>
     const framesize = document.getElementById('framesize')
     const xclk = document.getElementById('xclk')
     const swapButton = document.getElementById('swap-viewer')
-    const savePrefsButton = document.getElementById('save_prefs')
+    const writePrefsToSSpiffsButton = document.getElementById('save_prefs')
     const clearPrefsButton = document.getElementById('clear_prefs')
     const rebootButton = document.getElementById('reboot')
     const minFrameTime = document.getElementById('min_frame_time')
@@ -610,9 +610,9 @@ const uint8_t index_ov3660_html[] = R"=====(<!doctype html>
       window.open('/?view=simple','_self');
     }
 
-    savePrefsButton.onclick = () => {
+    writePrefsToSSpiffsButton.onclick = () => {
       if (confirm("Save the current preferences?")) {
-        updateConfig(savePrefsButton);
+        updateConfig(writePrefsToSSpiffsButton);
       }
     }
 

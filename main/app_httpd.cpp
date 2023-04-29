@@ -45,7 +45,7 @@ extern void flashLED(int flashtime);
 extern void setLamp(int newVal);
 extern void setPWM(int newVal);
 extern void printLocalTime(bool extraData);
-extern void loadPrefs(fs::FS &fs);
+extern void loadSpiffsToPrefs(fs::FS &fs);
 extern bool isTimelapseAnglerfish;
 
 bool saveImage(String filename, int lensValue=-1);
@@ -212,7 +212,7 @@ void serialDump()
         Serial.printf("- Saving and restoring camera settings will not function without this.\r\n");
     }
     Serial.println("Preferences file: ");
-    dumpPrefs(SPIFFS);
+    printPrefs(SPIFFS);
     if (critERR.length() > 0)
     {
         Serial.printf("\r\n\r\nAn error or halt has occurred with Camera Hardware, see previous messages.\r\n");
@@ -532,12 +532,10 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.println(val);
         setAcquireStack(SPIFFS, val);
     }
-    else if (!strcmp(variable, "timelapse")){
+    else if (!strcmp(variable, "isTimelapse")){
         Serial.print("Changing timelapse is enable to: ");
         Serial.println(val);
-        if (val == 0)
-            setTimelapseInterval(SPIFFS, -1);
-            //FIXME: We need to have a proper switch not just a value - won't work! 
+        setIsTimelapseGeneral(SPIFFS, val);
     }
     else if (!strcmp(variable, "lenc"))
         res = s->set_lenc(s, val);
@@ -596,7 +594,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     else if (!strcmp(variable, "save_prefs"))
     {
         if (filesystem)
-            savePrefs(SPIFFS);
+            writePrefsToSSpiffs(SPIFFS);
     }
     else if (!strcmp(variable, "clear_prefs"))
     {
@@ -1080,7 +1078,7 @@ static esp_err_t anglerfish_handler(httpd_req_t *req)
     Serial.println("Going into deepsleep mode");
 
     // save all settings from gui
-    savePrefs(SPIFFS);
+    writePrefsToSSpiffs(SPIFFS);
   
     // this will set the anglerfish into a periodic deep-sleep awake timelapse
     setIsTimelapseAnglerfish(SPIFFS, true);
@@ -1363,7 +1361,7 @@ bool saveImage(String filename, int lensValue)
     }
 
     // load camera preferences into camera
-    if (!isTimelapseAnglerfish) loadPrefs(SPIFFS);
+    if (!isTimelapseAnglerfish) loadSpiffsToPrefs(SPIFFS);
 
     // set PWM value e.g. 
     if (lensValue>-1){

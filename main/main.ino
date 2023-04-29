@@ -93,6 +93,10 @@ char mdnsName[] = MDNS_NAME;
 int httpPort = 80;
 int streamPort = 81;
 
+// settings for ssid/pw if updated from serial
+const char *mssid = "";
+const char *mpassword = "";
+
 #define WIFI_WATCHDOG 15000
 
 // Number of known networks in stationList[]
@@ -138,8 +142,9 @@ unsigned long xclk = 8;
 // initial rotation
 // can be set in myconfig.h
 int myRotation = 0;
-bool isStackAcquired = false;
+bool isStack = false;
 bool isTimelapseAnglerfish = false;
+bool isTimelapseGeneral = false;
 
 // minimal frame duration in ms, effectively 1/maxFPS
 int minFrameTime = 0;
@@ -148,6 +153,8 @@ int minFrameTime = 0;
 int timelapseInterval = -1;
 static uint64_t t_old = millis();
 bool sendToGithubFlag = false;
+uint32_t frameIndex = -1;
+
 
 // Illumination LAMP and status LED
 int lampVal = 0;       // default to off
@@ -199,8 +206,7 @@ void handleSerial()
         String cmd = Serial.readString(); // Serial.read();
         Serial.print("Serial command");
         Serial.println(cmd);
-        const char *mssid = "";
-        const char *mpassword = "";
+
         // Format {"ssid":"Blynk","password":"12345678"}
 
         StaticJsonDocument<256> doc;
@@ -841,16 +847,23 @@ void setup()
     bool isFirstRun = isFirstBoot(SPIFFS);
     if (isFirstRun)
     {
-        setTimelapseInterval(SPIFFS, -1);
+        // disable any Anglerfish-related settings
         removePrefs(SPIFFS);
-        setIsTimelapseAnglerfish(SPIFFS, false);
+        
+        // set the default settings
+        writePrefsToSSpiffs(SPIFFS);
+
+        // adjust compiled date
+        setCompiledDate(SPIFFS);
     }
-    isStackAcquired = getAcquireStack(SPIFFS);
+
+
+
+    // check if we want to acquire a stack instead of a single slice
+    isStack = getAcquireStack(SPIFFS);
 
     // only for Anglerfish if already focussed
     isTimelapseAnglerfish = getIsTimelapseAnglerfish(SPIFFS); // set the global variable for the loop function
-
-
 
     // initialize SD card before LED!!
     // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
@@ -908,6 +921,7 @@ void setup()
             1);                 /* Core where the task should run */
         Serial.println("Tasks created...");
     }
+
     // loading previous settings
     imagesServed = getFrameIndex(SPIFFS);
     timelapseInterval = getTimelapseInterval(SPIFFS);
@@ -953,7 +967,8 @@ void setup()
     if (filesystem)
     {
         delay(200); // a short delay to let spi bus settle after camera init
-        if (!isTimelapseAnglerfish) loadPrefs(SPIFFS);
+        if (!isTimelapseAnglerfish) 
+            loadSpiffsToPrefs(SPIFFS);
         Serial.println("internal files System found and mounted");
     }
     else
@@ -1161,13 +1176,14 @@ void loop()
     // Timelapse Imaging
     // Perform timelapse imaging
     timelapseInterval = getTimelapseInterval(SPIFFS);
-    if (timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
+    isTimelapseGeneral = getIsTimelapseGeneral(SPIFFS);
+    if (isTimelapseGeneral and timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
     {
-        savePrefs(SPIFFS);
+        writePrefsToSSpiffs(SPIFFS);
         // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
         log_d("Time to save a new image", timelapseInterval);
         t_old = millis();
-        uint32_t frame_index = getFrameIndex(SPIFFS) + 1;
+        frameIndex = getFrameIndex(SPIFFS) + 1;
 
         // turns on lamp automatically
         // save to SD card if existent
@@ -1192,7 +1208,7 @@ void loop()
         setLamp(lampVal);
 
         // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
-        setFrameIndex(SPIFFS, frame_index);
+        setFrameIndex(SPIFFS, frameIndex);
     }
 
     if (otaEnabled)
@@ -1241,7 +1257,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         Serial.println("In timelapse anglerfish mode.");
 
         // load previous settings
-        // loadPrefs(SPIFFS);
+        // loadSpiffsToPrefs(SPIFFS);
 
         // override LED settings
         autoLamp = true;
@@ -1250,10 +1266,10 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         setLamp(lampVal);
 
         // Save image to SD card
-        uint32_t frame_index = getFrameIndex(SPIFFS) + 1;
+        uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;
 
         // FIXME: decide which method to use..
-        setFrameIndex(SPIFFS, frame_index);
+        setFrameIndex(SPIFFS, frameIndex);
 
         // Get the compile date and time as a string
         String compileDate = String(__DATE__) + " " + String(__TIME__);

@@ -1,7 +1,7 @@
 #include "esp_camera.h"
 #include "jsonlib.h"
 #include "storage.h"
-#include <ArduinoJson.h>
+
 
 // These are defined in the main .ino file
 extern void flashLED(int flashtime);
@@ -10,6 +10,13 @@ extern int lampVal;      // The current Lamp value
 extern bool autoLamp;    // Automatic lamp mode
 extern int xclk;         // Camera module clock speed
 extern int minFrameTime; // Limits framerate
+extern bool isTimelapseAnglerfish;   // Anglerfish mode
+extern char *mssid;
+extern char *mpassword;
+extern uint32_t frameIndex;
+extern bool isStack;
+extern int timelapseInterval;
+extern bool isTimelapseGeneral;
 /*
  * Useful utility when debugging...
  */
@@ -53,8 +60,9 @@ void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
   }
 }
 
-void dumpPrefs(fs::FS &fs)
+void printPrefs(fs::FS &fs)
 {
+  // Printing the contents of the preferences file
   if (fs.exists(PREFERENCES_FILE))
   {
     // Dump contents for debug
@@ -74,9 +82,8 @@ void dumpPrefs(fs::FS &fs)
   }
 }
 
-void savePrefs(fs::FS &fs)
-{
-  // FIXME: Merge with loadPrefs() to avoid duplication
+void writePrefsToSSpiffs(DynamicJsonDocument doc, fs::FS &fs){
+    // FIXME: Merge with loadSpiffsToPrefs() to avoid duplication
   if (fs.exists(PREFERENCES_FILE))
   {
     Serial.printf("Updating %s\r\n", PREFERENCES_FILE);
@@ -87,10 +94,24 @@ void savePrefs(fs::FS &fs)
   }
   File file = fs.open(PREFERENCES_FILE, FILE_WRITE);
 
+  // FIXME: ADD ALL THE values from the json document to variabels!
+  String jsonString;
+  //serializeJsonPretty(doc, Serial);
+  serializeJson(doc, jsonString);
+
+  // Write the JSON string to the file
+  file.print(jsonString);
+  file.close();
+
+
+}
+
+void writePrefsToSSpiffs(fs::FS &fs)
+{
   sensor_t *s = esp_camera_sensor_get();
 
   // save it to an arduinojson document
-  DynamicJsonDocument jsonDoc(1024);
+  DynamicJsonDocument jsonDoc = readPrefs(SPIFFS);
   jsonDoc["lamp"] = lampVal;
   jsonDoc["autolamp"] = autoLamp;
   jsonDoc["framesize"] = s->status.framesize;
@@ -120,16 +141,19 @@ void savePrefs(fs::FS &fs)
   jsonDoc["dcw"] = s->status.dcw;
   jsonDoc["colorbar"] = s->status.colorbar;
   jsonDoc["rotate"] = String(myRotation);
+  jsonDoc["isTimelapseAnglerfish"] = isTimelapseAnglerfish;
+  jsonDoc["mssid"] = mssid;
+  jsonDoc["mpassword"] = mpassword;
+  jsonDoc["frameIndex"] = frameIndex ;
+  jsonDoc["isStack"] = isStack ;
+  jsonDoc["timelapseInterval"] = timelapseInterval;
+  jsonDoc["isTimelapseGeneral"] = isTimelapseGeneral;
+  
+
 
   // FIXME: ADD ALL THE values from the json document to variabels!
-  log_d("Serialize");
-  serializeJsonPretty(jsonDoc, Serial); // print the JSON object to Serial
-  String jsonString;
-  serializeJson(jsonDoc, jsonString);
+  writePrefsToSSpiffs(jsonDoc, SPIFFS);
 
-  // Write the JSON string to the file
-  file.print(jsonString);
-  dumpPrefs(SPIFFS);
 }
 
 void removePrefs(fs::FS &fs)
@@ -172,7 +196,7 @@ void filesystemStart()
 
 // Read the device preferences from the filesystem and return a arduinojson dictionary
 
-DynamicJsonDocument readConfig(fs::FS &fs)
+DynamicJsonDocument readPrefs(fs::FS &fs)
 {
   DynamicJsonDocument jsonDoc(1024); // create a dynamic JSON document with a capacity of 1024 bytes
   // FIXME: ADD ALL THE values from the json document to variabels!
@@ -180,7 +204,6 @@ DynamicJsonDocument readConfig(fs::FS &fs)
   {
     // read file into a string
     String prefs;
-    Serial.printf("Loading preferences from file %s\r\n", PREFERENCES_FILE);
     File file = fs.open(PREFERENCES_FILE, FILE_READ);
     if (!file)
     {
@@ -224,8 +247,9 @@ DynamicJsonDocument readConfig(fs::FS &fs)
   }
 }
 
-void loadPrefs(fs::FS &fs)
+void loadSpiffsToPrefs(fs::FS &fs)
 {
+  // loading JSON file and apply to settings
 
   // read if file exists
   if (fs.exists(PREFERENCES_FILE))
@@ -237,7 +261,7 @@ void loadPrefs(fs::FS &fs)
     DynamicJsonDocument doc(capacity);
 
     // Parse the JSON document
-    doc = readConfig(SPIFFS);
+    doc = readPrefs(SPIFFS);
 
     // Get sensor reference
     sensor_t *s = esp_camera_sensor_get();
@@ -283,8 +307,7 @@ void loadPrefs(fs::FS &fs)
     s->set_dcw(s, doc["dcw"].as<int>());
     s->set_colorbar(s, doc["colorbar"].as<int>());
 
-    // close the file
-    dumpPrefs(SPIFFS);
+
   }
   else
   {
@@ -298,8 +321,12 @@ bool isFirstBoot(fs::FS &fs)
   static const char compiled_date[] PROGMEM = __DATE__ " " __TIME__;
 
   // FIXME: What if stored_date is not set yet?
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   String stored_date = mConfig["stored_date"];
+  Serial.println("Stored date:");
+  Serial.println(stored_date);
+  Serial.println("compiled_date:");
+  Serial.println(compiled_date);
 
   Serial.print("First run? ");
   if (!stored_date.equals(compiled_date))
@@ -311,15 +338,13 @@ bool isFirstBoot(fs::FS &fs)
     Serial.println("no");
   }
   mConfig["stored_date"] = compiled_date;
-  savePrefs(SPIFFS);
-  return !stored_date.equals(compiled_date);
-
+  writePrefsToSSpiffs(mConfig, SPIFFS);
   return !stored_date.equals(compiled_date);
 }
 
 bool getIsTimelapseAnglerfish(fs::FS &fs)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   if (mConfig.containsKey("isTimelapseAnglerfish"))
     return mConfig["isTimelapseAnglerfish"];
   else
@@ -328,16 +353,36 @@ bool getIsTimelapseAnglerfish(fs::FS &fs)
 
 void setIsTimelapseAnglerfish(fs::FS &fs, bool isTimelapseAnglerfish)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig["isTimelapseAnglerfish"] = isTimelapseAnglerfish;
-  savePrefs(SPIFFS);
+  writePrefsToSSpiffs(mConfig, SPIFFS);
+}
+
+static const char isTimelapseGeneralKey[] = "isTimelapseGeneral";
+bool getIsTimelapseGeneral(fs::FS &fs)
+{
+  //log_d("getIsTimelapseGeneral");
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
+  if (mConfig.containsKey("isTimelapseGeneralKey"))
+    return mConfig["isTimelapseGeneralKey"];
+  else
+    return false;
+}
+
+void setIsTimelapseGeneral(fs::FS &fs, bool isTimelapseGeneral)
+{
+  log_d("setIsTimelapseGeneral");
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
+  mConfig["isTimelapseGeneralKey"] = isTimelapseGeneral;
+  writePrefsToSSpiffs(mConfig, SPIFFS);
 }
 
 
-static const char wifissidKey[] = "wifi_ssid";
+
+static const char wifissidKey[] = "mssid";
 String getWifiSSID(fs::FS &fs)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   if (mConfig.containsKey(wifissidKey))
     return mConfig[wifissidKey];
   else
@@ -346,15 +391,15 @@ String getWifiSSID(fs::FS &fs)
 
 void setWifiSSID(fs::FS &fs, String value)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[wifissidKey] = value;
-  savePrefs(SPIFFS);
+  writePrefsToSSpiffs(mConfig, SPIFFS);
 }
 
-static const char wifipwKey[] = "wifi_pw";
+static const char wifipwKey[] = "mpassword";
 String getWifiPW(fs::FS &fs)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   if (mConfig.containsKey(wifipwKey))
     return mConfig[wifipwKey];
   else
@@ -363,15 +408,15 @@ String getWifiPW(fs::FS &fs)
 
 void setWifiPW(fs::FS &fs, String value)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[wifipwKey] = value;
-  savePrefs(SPIFFS);
+  writePrefsToSSpiffs(mConfig, SPIFFS);
 }
 
-static const char frameIndexKey[] = "frame_index";
+static const char frameIndexKey[] = "frameIndex";
 uint32_t getFrameIndex(fs::FS &fs)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   if (mConfig.containsKey(frameIndexKey))
     return mConfig[frameIndexKey];
   else
@@ -380,16 +425,16 @@ uint32_t getFrameIndex(fs::FS &fs)
 
 void setFrameIndex(fs::FS &fs, int value)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[frameIndexKey] = value;
-  savePrefs(SPIFFS);
+  writePrefsToSSpiffs(mConfig, SPIFFS);
 }
 
 
 static const char isStackKey[] = "isStack";
 bool getAcquireStack(fs::FS &fs)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   if (mConfig.containsKey(isStackKey))
     return mConfig[isStackKey];
   else
@@ -398,15 +443,15 @@ bool getAcquireStack(fs::FS &fs)
 
 void setAcquireStack(fs::FS &fs, bool value)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[isStackKey] = value;
-  savePrefs(SPIFFS);
+  writePrefsToSSpiffs(mConfig, SPIFFS);
 }
 
-static const char timelapseIntervalKey[] = "cameraTLI";
+static const char timelapseIntervalKey[] = "timelapseInterval";
 uint32_t getTimelapseInterval(fs::FS &fs)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   if (mConfig.containsKey(timelapseIntervalKey))
     return mConfig[timelapseIntervalKey];
   else
@@ -415,10 +460,19 @@ uint32_t getTimelapseInterval(fs::FS &fs)
 
 void setTimelapseInterval(fs::FS &fs, uint32_t value)
 {
-  DynamicJsonDocument mConfig = readConfig(SPIFFS);
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[timelapseIntervalKey] = value;
-  savePrefs(SPIFFS);
+  writePrefsToSSpiffs(mConfig, SPIFFS);
 }
 
 
+void setCompiledDate(fs::FS &fs)
+{
+  // get compiled date/time
+  static const char compiled_date[] PROGMEM = __DATE__ " " __TIME__;
 
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
+  mConfig["stored_date"] = compiled_date;
+  writePrefsToSSpiffs(mConfig, SPIFFS);
+  
+}

@@ -252,10 +252,10 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 </div>
               </div>              
               <div class="input-group" id="timelapse-group">
-                <label for="timelapse">Timelapse Enable</label>
+                <label for="isTimelapse">Timelapse Enable</label>
                 <div class="switch">
-                  <input id="timelapse" type="checkbox" class="default-action" checked="checked">
-                  <label class="slider" for="timelapse"></label>
+                  <input id="isTimelapse" type="checkbox" class="default-action" checked="checked">
+                  <label class="slider" for="isTimelapse"></label>
                 </div>
               </div>              
               <div class="input-group" id="hmirror-group">
@@ -371,7 +371,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const framesize = document.getElementById('framesize')
     const xclk = document.getElementById('xclk')
     const swapButton = document.getElementById('swap-viewer')
-    const savePrefsButton = document.getElementById('save_prefs')
+    const writePrefsToSSpiffsButton = document.getElementById('save_prefs')
     const clearPrefsButton = document.getElementById('clear_prefs')
     const rebootButton = document.getElementById('reboot')
     const minFrameTime = document.getElementById('min_frame_time')
@@ -758,9 +758,9 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       window.open('/?view=simple','_self');
     }
 
-    savePrefsButton.onclick = () => {
+    writePrefsToSSpiffsButton.onclick = () => {
       if (confirm("Save the current preferences?")) {
-        updateConfig(savePrefsButton);
+        updateConfig(writePrefsToSSpiffsButton);
       }
     }
 
