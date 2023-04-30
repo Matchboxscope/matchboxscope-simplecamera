@@ -848,12 +848,15 @@ void setup()
     if (isFirstRun)
     {
         // disable any Anglerfish-related settings
+        log_d("Remove SPIFFS") ;
         removePrefs(SPIFFS);
         
         // set the default settings
+        log_d("Write Prefs to SPIFFS");
         writePrefsToSSpiffs(SPIFFS);
 
         // adjust compiled date
+        log_d("Set compiled date");
         setCompiledDate(SPIFFS);
     }
 
@@ -1175,8 +1178,10 @@ void loop()
     */
     // Timelapse Imaging
     // Perform timelapse imaging
-    timelapseInterval = getTimelapseInterval(SPIFFS);
-    isTimelapseGeneral = getIsTimelapseGeneral(SPIFFS);
+    // timelapseInterval - will be changed by the httpd server
+    // isTimelapseGeneral - will be changed by the httpd server //= getIsTimelapseGeneral(SPIFFS);
+
+    
     if (isTimelapseGeneral and timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
     {
         writePrefsToSSpiffs(SPIFFS);

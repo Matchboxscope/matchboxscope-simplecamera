@@ -12,6 +12,7 @@ extern void loadSpiffsToPrefs(fs::FS &fs);
 extern DynamicJsonDocument readPrefs(fs::FS &fs);
 extern void removePrefs(fs::FS &fs);
 extern void writePrefsToSSpiffs(fs::FS &fs);
+extern void writeJsonToSSpiffs(fs::FS &fs, DynamicJsonDocument doc);
 extern bool isFirstBoot(fs::FS &fs);
 
 // Anglerfish Modes 
@@ -31,5 +32,6 @@ void setTimelapseInterval(fs::FS &fs, uint32_t value);
 void setCompiledDate(fs::FS &fs);
 bool getIsTimelapseGeneral(fs::FS &fs);
 void setIsTimelapseGeneral(fs::FS &fs, bool value);
+void setCompiledDate(fs::FS &fs);
 
 extern void filesystemStart();

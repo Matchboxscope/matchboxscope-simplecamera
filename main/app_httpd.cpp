@@ -85,7 +85,7 @@ extern char otaPassword[];
 extern unsigned long xclk;
 extern int sensorPID;
 extern int sdInitialized;
-
+extern bool isTimelapseGeneral;
 
 bool IS_STREAM_PAUSE = false;
 
@@ -535,6 +535,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     else if (!strcmp(variable, "isTimelapse")){
         Serial.print("Changing timelapse is enable to: ");
         Serial.println(val);
+        isTimelapseGeneral = val;
         setIsTimelapseGeneral(SPIFFS, val);
     }
     else if (!strcmp(variable, "lenc"))
@@ -593,8 +594,13 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     }
     else if (!strcmp(variable, "save_prefs"))
     {
-        if (filesystem)
+        if (filesystem){
             writePrefsToSSpiffs(SPIFFS);
+            printPrefs(SPIFFS);
+        }
+        else{
+            log_d("No filesystem, not saving prefs");
+        }
     }
     else if (!strcmp(variable, "clear_prefs"))
     {
@@ -703,6 +709,8 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"code_ver\":\"%s\",", myVer);
         p += sprintf(p, "\"rotate\":\"%d\",", myRotation);
         p += sprintf(p, "\"stream_url\":\"%s\",", streamURL);
+        p += sprintf(p, "\"sdcard\":%d,", sdInitialized);
+        //p += sprintf(p, "\"compiled_date\":%llu,", compileDate);
         //p += sprintf(p, "\"stack\":\"%u\",", isStackAcquire);
         p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
     }

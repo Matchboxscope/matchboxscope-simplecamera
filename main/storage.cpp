@@ -17,23 +17,29 @@ extern uint32_t frameIndex;
 extern bool isStack;
 extern int timelapseInterval;
 extern bool isTimelapseGeneral;
+
+bool fileOpen = false;  // file-writing switch
 /*
  * Useful utility when debugging...
  */
 
 void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
 {
+  if (0) return;
   Serial.printf("Listing SPIFFS directory: %s\r\n", dirname);
 
   File root = fs.open(dirname);
+  fileOpen = true;
   if (!root)
   {
     Serial.println("- failed to open directory");
+    fileOpen = false;
     return;
   }
   if (!root.isDirectory())
   {
     Serial.println(" - not a directory");
+    fileOpen = false;
     return;
   }
 
@@ -58,15 +64,18 @@ void listDir(fs::FS &fs, const char *dirname, uint8_t levels)
     }
     file = root.openNextFile();
   }
+  fileOpen = false;
 }
 
 void printPrefs(fs::FS &fs)
 {
+  if (0) return;
   // Printing the contents of the preferences file
   if (fs.exists(PREFERENCES_FILE))
   {
     // Dump contents for debug
     File file = fs.open(PREFERENCES_FILE, FILE_READ);
+    fileOpen = true;
     int countSize = 0;
     while (file.available() && countSize <= PREFERENCES_MAX_SIZE)
     {
@@ -80,10 +89,13 @@ void printPrefs(fs::FS &fs)
   {
     Serial.printf("%s not found, nothing to dump.\r\n", PREFERENCES_FILE);
   }
+  fileOpen = false;
 }
 
-void writePrefsToSSpiffs(DynamicJsonDocument doc, fs::FS &fs){
+
+void writeJsonToSSpiffs(DynamicJsonDocument doc, fs::FS &fs){
     // FIXME: Merge with loadSpiffsToPrefs() to avoid duplication
+  if (fileOpen) return;
   if (fs.exists(PREFERENCES_FILE))
   {
     Serial.printf("Updating %s\r\n", PREFERENCES_FILE);
@@ -92,18 +104,20 @@ void writePrefsToSSpiffs(DynamicJsonDocument doc, fs::FS &fs){
   {
     Serial.printf("Creating %s\r\n", PREFERENCES_FILE);
   }
+  log_d("Opening file for writing");
+  fileOpen = true;fileOpen = false;//log_d("Locking file");
   File file = fs.open(PREFERENCES_FILE, FILE_WRITE);
-
+  
   // FIXME: ADD ALL THE values from the json document to variabels!
+  log_d("Serializing JSON to String");
   String jsonString;
   //serializeJsonPretty(doc, Serial);
   serializeJson(doc, jsonString);
 
   // Write the JSON string to the file
+  log_d("Writing JSON to file");
   file.print(jsonString);
-  file.close();
-
-
+  fileOpen = false; fileOpen = false;//log_d("UnLocking file");
 }
 
 void writePrefsToSSpiffs(fs::FS &fs)
@@ -152,12 +166,13 @@ void writePrefsToSSpiffs(fs::FS &fs)
 
 
   // FIXME: ADD ALL THE values from the json document to variabels!
-  writePrefsToSSpiffs(jsonDoc, SPIFFS);
+  writeJsonToSSpiffs(jsonDoc, SPIFFS);
 
 }
 
 void removePrefs(fs::FS &fs)
 {
+  if (0) return;
   if (fs.exists(PREFERENCES_FILE))
   {
     Serial.printf("Removing %s\r\n", PREFERENCES_FILE);
@@ -198,38 +213,44 @@ void filesystemStart()
 
 DynamicJsonDocument readPrefs(fs::FS &fs)
 {
+
   DynamicJsonDocument jsonDoc(1024); // create a dynamic JSON document with a capacity of 1024 bytes
+  if (fileOpen) return jsonDoc;
   // FIXME: ADD ALL THE values from the json document to variabels!
   if (fs.exists(PREFERENCES_FILE))
   {
     // read file into a string
     String prefs;
+    fileOpen = true; //log_d("Locking file");
     File file = fs.open(PREFERENCES_FILE, FILE_READ);
+
     if (!file)
     {
       Serial.println("Failed to open preferences file for reading, maybe corrupt, removing");
       removePrefs(SPIFFS);
+      fileOpen = false;//log_d("UnLocking file");
       return jsonDoc;
     }
-    size_t size = file.size();
+    /*size_t size = file.size();
     if (size > PREFERENCES_MAX_SIZE)
     {
       Serial.println("Preferences file size is too large, maybe corrupt, removing");
       removePrefs(SPIFFS);
       return jsonDoc;
-    }
+    }*/
     while (file.available())
     {
       prefs += char(file.read());
-      if (prefs.length() > size)
+      /*if (prefs.length() > size)
       {
         // corrupted SPIFFS files can return data beyond their declared size.
         Serial.println("Preferences file failed to load properly, appears to be corrupt, removing");
         removePrefs(SPIFFS);
         return jsonDoc;
-      }
+      }*/
     }
 
+    fileOpen = false;fileOpen = false;//log_d("UnLocking file");
     // parse the string into a JSON object
     DeserializationError error = deserializeJson(jsonDoc, prefs);
     if (error)
@@ -242,6 +263,7 @@ DynamicJsonDocument readPrefs(fs::FS &fs)
   }
   else
   {
+    fileOpen = false;fileOpen = false;//log_d("UnLocking file");
     Serial.println("No preferences file found, returning empty JSON object");
     return jsonDoc; // return an empty JSON object
   }
@@ -338,7 +360,7 @@ bool isFirstBoot(fs::FS &fs)
     Serial.println("no");
   }
   mConfig["stored_date"] = compiled_date;
-  writePrefsToSSpiffs(mConfig, SPIFFS);
+  writeJsonToSSpiffs(mConfig, SPIFFS);
   return !stored_date.equals(compiled_date);
 }
 
@@ -355,7 +377,7 @@ void setIsTimelapseAnglerfish(fs::FS &fs, bool isTimelapseAnglerfish)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig["isTimelapseAnglerfish"] = isTimelapseAnglerfish;
-  writePrefsToSSpiffs(mConfig, SPIFFS);
+  writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
 static const char isTimelapseGeneralKey[] = "isTimelapseGeneral";
@@ -374,7 +396,7 @@ void setIsTimelapseGeneral(fs::FS &fs, bool isTimelapseGeneral)
   log_d("setIsTimelapseGeneral");
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig["isTimelapseGeneralKey"] = isTimelapseGeneral;
-  writePrefsToSSpiffs(mConfig, SPIFFS);
+  writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
 
@@ -393,7 +415,7 @@ void setWifiSSID(fs::FS &fs, String value)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[wifissidKey] = value;
-  writePrefsToSSpiffs(mConfig, SPIFFS);
+  writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
 static const char wifipwKey[] = "mpassword";
@@ -410,7 +432,7 @@ void setWifiPW(fs::FS &fs, String value)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[wifipwKey] = value;
-  writePrefsToSSpiffs(mConfig, SPIFFS);
+  writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
 static const char frameIndexKey[] = "frameIndex";
@@ -427,7 +449,7 @@ void setFrameIndex(fs::FS &fs, int value)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[frameIndexKey] = value;
-  writePrefsToSSpiffs(mConfig, SPIFFS);
+  writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
 
@@ -445,7 +467,7 @@ void setAcquireStack(fs::FS &fs, bool value)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[isStackKey] = value;
-  writePrefsToSSpiffs(mConfig, SPIFFS);
+  writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
 static const char timelapseIntervalKey[] = "timelapseInterval";
@@ -462,17 +484,19 @@ void setTimelapseInterval(fs::FS &fs, uint32_t value)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[timelapseIntervalKey] = value;
-  writePrefsToSSpiffs(mConfig, SPIFFS);
+  writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
 
 void setCompiledDate(fs::FS &fs)
 {
   // get compiled date/time
+  log_d("setCompiledDate");
   static const char compiled_date[] PROGMEM = __DATE__ " " __TIME__;
 
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig["stored_date"] = compiled_date;
-  writePrefsToSSpiffs(mConfig, SPIFFS);
+  serializeJsonPretty(mConfig, Serial);
+  writeJsonToSSpiffs(mConfig, SPIFFS);
   
 }
