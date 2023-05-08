@@ -44,7 +44,6 @@
 extern void flashLED(int flashtime);
 extern void setLamp(int newVal);
 extern void setPWM(int newVal);
-extern void printLocalTime(bool extraData);
 extern void loadSpiffsToPrefs(fs::FS &fs);
 extern bool isTimelapseAnglerfish;
 
@@ -58,8 +57,6 @@ extern IPAddress ip;
 extern IPAddress net;
 extern IPAddress gw;
 extern bool accesspoint;
-extern char apName[];
-extern bool captivePortal;
 extern int httpPort;
 extern int streamPort;
 extern char httpURL[];
@@ -76,7 +73,6 @@ extern int pwmVal;
 extern bool filesystem;
 extern String critERR;
 extern bool debugData;
-extern bool haveTime;
 extern int sketchSize;
 extern int sketchSpace;
 extern String sketchMD5;
@@ -122,11 +118,6 @@ void serialDump()
     Serial.println();
     // Module
     Serial.printf("Name: %s\r\n", myName);
-    if (haveTime)
-    {
-        Serial.print("Time: ");
-        printLocalTime(true);
-    }
     Serial.printf("Firmware: %s (base: %s)\r\n", myVer, baseVersion);
     float sketchPct = 100 * sketchSize / sketchSpace;
     Serial.printf("Sketch Size: %i (total: %i, %.1f%% used)\r\n", sketchSize, sketchSpace, sketchPct);
@@ -147,28 +138,12 @@ void serialDump()
     {
         Serial.printf("OTA: Disabled\n\r");
     }
-    // Network
-    if (accesspoint)
-    {
-        if (captivePortal)
-        {
-            Serial.printf("WiFi Mode: AccessPoint with captive portal\r\n");
-        }
-        else
-        {
-            Serial.printf("WiFi Mode: AccessPoint\r\n");
-        }
-        Serial.printf("WiFi SSID: %s\r\n", apName);
-    }
-    else
-    {
         Serial.printf("WiFi Mode: Client\r\n");
         String ssidName = WiFi.SSID();
         Serial.printf("WiFi Ssid: %s\r\n", ssidName.c_str());
         Serial.printf("WiFi Rssi: %i\r\n", WiFi.RSSI());
         String bssid = WiFi.BSSIDstr();
         Serial.printf("WiFi BSSID: %s\r\n", bssid.c_str());
-    }
     Serial.printf("WiFi IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
     if (!accesspoint)
     {
@@ -538,6 +513,16 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         isTimelapseGeneral = val;
         setIsTimelapseGeneral(SPIFFS, val);
     }
+    else if (!strcmp(variable, "ssid")){
+        Serial.print("Changing SSID to: ");
+        Serial.println(value);
+        setWifiSSID(SPIFFS, value);
+    }
+    else if (!strcmp(variable, "password")){
+        Serial.print("Changing password to: ");
+        Serial.println(value);
+        setWifiPW(SPIFFS, value);
+    }    
     else if (!strcmp(variable, "lenc"))
         res = s->set_lenc(s, val);
     else if (!strcmp(variable, "special_effect"))
@@ -795,27 +780,12 @@ static esp_err_t dump_handler(httpd_req_t *req)
     d += sprintf(d, "ESP sdk: %s<br>\n", ESP.getSdkVersion());
     // Network
     d += sprintf(d, "<h2>WiFi</h2>\n");
-    if (accesspoint)
-    {
-        if (captivePortal)
-        {
-            d += sprintf(d, "Mode: AccessPoint with captive portal<br>\n");
-        }
-        else
-        {
-            d += sprintf(d, "Mode: AccessPoint<br>\n");
-        }
-        d += sprintf(d, "SSID: %s<br>\n", apName);
-    }
-    else
-    {
         d += sprintf(d, "Mode: Client<br>\n");
         String ssidName = WiFi.SSID();
         d += sprintf(d, "SSID: %s<br>\n", ssidName.c_str());
         d += sprintf(d, "Rssi: %i<br>\n", WiFi.RSSI());
         String bssid = WiFi.BSSIDstr();
         d += sprintf(d, "BSSID: %s<br>\n", bssid.c_str());
-    }
     d += sprintf(d, "IP address: %d.%d.%d.%d<br>\n", ip[0], ip[1], ip[2], ip[3]);
     if (!accesspoint)
     {
@@ -829,17 +799,7 @@ static esp_err_t dump_handler(httpd_req_t *req)
 
     // System
     d += sprintf(d, "<h2>System</h2>\n");
-    if (haveTime)
-    {
-        struct tm timeinfo;
-        if (getLocalTime(&timeinfo))
-        {
-            char timeStringBuff[50]; // 50 chars should be enough
-            strftime(timeStringBuff, sizeof(timeStringBuff), "%H:%M:%S, %A, %B %d %Y", &timeinfo);
-            // print like "const char*"
-            d += sprintf(d, "Time: %s<br>\n", timeStringBuff);
-        }
-    }
+
     int64_t sec = esp_timer_get_time() / 1000000;
     int64_t upDays = int64_t(floor(sec / 86400));
     int upHours = int64_t(floor(sec / 3600)) % 24;
@@ -1151,11 +1111,7 @@ static esp_err_t index_handler(httpd_req_t *req)
     {
         // no target specified; default.
         strcpy(view, default_index);
-        // If captive portal is active send that instead
-        if (captivePortal)
-        {
-            strcpy(view, "portal");
-        }
+
     }
 
     if (strncmp(view, "simple", sizeof(view)) == 0)

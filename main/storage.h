@@ -34,4 +34,5 @@ bool getIsTimelapseGeneral(fs::FS &fs);
 void setIsTimelapseGeneral(fs::FS &fs, bool value);
 void setCompiledDate(fs::FS &fs);
 
+
 extern void filesystemStart();

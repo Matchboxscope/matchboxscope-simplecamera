@@ -313,7 +313,21 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <button id="reboot" title="Reboot the camera module">Reboot</button>
                 <button id="save_prefs" title="Save Preferences on camera module">Save</button>
                 <button id="clear_prefs" title="Erase saved Preferences on camera module">Erase</button>
+                <button id="mWifiConfirm" title="Confirm the wifi settings">Confirm Wifi</button>
               </div>
+
+              <div class="input-group" id="set-ssid-group" title="Change the Wifi SSID">
+                <label for="set-ssid">WiFi SSID</label>
+                <div class="text">
+                   <input id="ssid" type="text" class="default-action">
+                 </div>
+              </div> 
+             <div class="input-group" id="set-password-group" title="Change the Wifi Passowrd">
+              <label for="set-password">WiFi Password</label>
+              <div class="password">
+                 <input id="password" type="text" class="default-action">
+               </div>  
+              </div> 
               <div class="input-group" id="cam_name-group">
                 <label for="cam_name">
                 <a href="/dump" title="System Info" target="_blank">Name</a></label>
@@ -324,12 +338,13 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <a href="https://github.com/easytarget/esp32-cam-webserver"
                   title="ESP32 Cam Webserver on GitHub" target="_blank">Firmware</a></label>
                 <div id="code_ver" class="default-action"></div>
-              </div>
+              </div>                       
               <div class="input-group hidden" id="stream-group">
                 <label for="stream_url" id="stream_link">Stream</label>
-                <div id="stream_url" class="default-action">Unknown</div>
-              <div id="window-container"></div>
+                <div id="stream_url" class="default-action">Unknown</div>             
+               <div id="window-container"></div>
               <div id="menu-container"></div>
+           </div>             
             </nav>
         </div>
         <figure>
@@ -370,6 +385,9 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const streamLink = document.getElementById('stream_link')
     const framesize = document.getElementById('framesize')
     const xclk = document.getElementById('xclk')
+    const mSSID = document.getElementById('ssid')
+    const mPassword = document.getElementById('password')
+    const confirmWifi = document.getElementById('mWifiConfirm')
     const swapButton = document.getElementById('swap-viewer')
     const writePrefsToSSpiffsButton = document.getElementById('save_prefs')
     const clearPrefsButton = document.getElementById('clear_prefs')
@@ -505,6 +523,9 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
         case 'submit':
           value = '1'
           break
+        case 'text':
+          value = el.value
+          break
         default:
           return
       }
@@ -547,53 +568,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     githubButton.setAttribute("title", `Upload a still image to Github :: ${baseHost}/uploadgithub`);
     imjoyButton.setAttribute("title", `Upload a still image to ImJoy :: ${baseHost}/uploadimjoy`);
     
-    loadImJoyBasicApp({
-      process_url_query: true,
-      show_window_title: false,
-      show_progress_bar: true,
-      show_empty_window: true,
-      menu_style: { position: "absolute", right: 0, top: "2px" },
-      window_style: { width: '100%', height: '100%' },
-      main_container: null,
-      menu_container: "menu-container",
-      window_manager_container: "window-container",
-      imjoy_api: {} // override some imjoy API functions here
-  }).then(async app => {
-      // get the api object from the root plugin
-      const api = app.imjoy.api;
-      // if you want to let users to load new plugins, add a menu item
-      app.addMenuItem({
-          label: "➕ Load Plugin",
-          callback() {
-              const uri = prompt(
-                  `Please type a ImJoy plugin URL`,
-                  "https://github.com/imjoy-team/imjoy-plugins/blob/master/repository/ImageAnnotator.imjoy.html"
-              );
-              if (uri) app.loadPlugin(uri);
-          },
-      });
-
-      window.sendToImageJ = async function () {
-          const imageURL = document.location.origin
-          const response = await fetch(`${imageURL}/capture?_cb=ImJoy`);
-          const bytes = await response.arrayBuffer();
-          // if you want a windows displayed in a draggable rezisable grid layout
-          let ij = await api.getWindow("ImageJ.JS")
-          if (!ij) {
-              ij = await api.createWindow({
-                  src: "https://ij.imjoy.io",
-                  name: "ImageJ.JS",
-                  fullscreen: true,
-                  // window_id: "imagej-window", // if you want to display imagej in a specific window, place a div with this id in the html
-              });
-          }
-          else {
-              await ij.show();
-          }
-          // https://github.com/imjoy-team/imagej.js#viewimageimg_array-config
-          await ij.viewImage(bytes, { name: 'image.jpeg' })
-      }
-    });
 
     const stopStream = () => {
       window.stop();
@@ -770,6 +744,12 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       }
     }
 
+    confirmWifi.onclick = () => {
+      if (confirm("Want to update SSID/Password? Please hit the reboot button to connect to the Wifi.")) {
+        updateConfig(mSSID);
+        updateConfig(mPassword);
+      }
+    }
     rebootButton.onclick = () => {
       if (confirm("Reboot the Camera Module?")) {
         updateConfig(rebootButton);
@@ -783,7 +763,61 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       }
     }
 
+    mSSID.onchange = () => {
+      console.log("xclk:" , xclk);
+      updateConfig(mSSID);        
+    } 
+
   })
+
+      loadImJoyBasicApp({
+      process_url_query: true,
+      show_window_title: false,
+      show_progress_bar: true,
+      show_empty_window: true,
+      menu_style: { position: "absolute", right: 0, top: "2px" },
+      window_style: { width: '100%', height: '100%' },
+      main_container: null,
+      menu_container: "menu-container",
+      window_manager_container: "window-container",
+      imjoy_api: {} // override some imjoy API functions here
+  }).then(async app => {
+      // get the api object from the root plugin
+      const api = app.imjoy.api;
+      // if you want to let users to load new plugins, add a menu item
+      app.addMenuItem({
+          label: "➕ Load Plugin",
+          callback() {
+              const uri = prompt(
+                  `Please type a ImJoy plugin URL`,
+                  "https://github.com/imjoy-team/imjoy-plugins/blob/master/repository/ImageAnnotator.imjoy.html"
+              );
+              if (uri) app.loadPlugin(uri);
+          },
+      });
+
+      window.sendToImageJ = async function () {
+          const imageURL = document.location.origin
+          const response = await fetch(`${imageURL}/capture?_cb=ImJoy`);
+          const bytes = await response.arrayBuffer();
+          // if you want a windows displayed in a draggable rezisable grid layout
+          let ij = await api.getWindow("ImageJ.JS")
+          if (!ij) {
+              ij = await api.createWindow({
+                  src: "https://ij.imjoy.io",
+                  name: "ImageJ.JS",
+                  fullscreen: true,
+                  // window_id: "imagej-window", // if you want to display imagej in a specific window, place a div with this id in the html
+              });
+          }
+          else {
+              await ij.show();
+          }
+          // https://github.com/imjoy-team/imagej.js#viewimageimg_array-config
+          await ij.viewImage(bytes, { name: 'image.jpeg' })
+      }
+    });
+
 
 </script>
 

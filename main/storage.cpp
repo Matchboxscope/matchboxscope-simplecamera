@@ -105,7 +105,7 @@ void writeJsonToSSpiffs(DynamicJsonDocument doc, fs::FS &fs){
     Serial.printf("Creating %s\r\n", PREFERENCES_FILE);
   }
   log_d("Opening file for writing");
-  fileOpen = true;fileOpen = false;//log_d("Locking file");
+  fileOpen = true;
   File file = fs.open(PREFERENCES_FILE, FILE_WRITE);
   
   // FIXME: ADD ALL THE values from the json document to variabels!
@@ -117,7 +117,7 @@ void writeJsonToSSpiffs(DynamicJsonDocument doc, fs::FS &fs){
   // Write the JSON string to the file
   log_d("Writing JSON to file");
   file.print(jsonString);
-  fileOpen = false; fileOpen = false;//log_d("UnLocking file");
+  fileOpen = false; 
 }
 
 void writePrefsToSSpiffs(fs::FS &fs)
@@ -172,7 +172,7 @@ void writePrefsToSSpiffs(fs::FS &fs)
 
 void removePrefs(fs::FS &fs)
 {
-  if (0) return;
+
   if (fs.exists(PREFERENCES_FILE))
   {
     Serial.printf("Removing %s\r\n", PREFERENCES_FILE);
@@ -408,7 +408,7 @@ String getWifiSSID(fs::FS &fs)
   if (mConfig.containsKey(wifissidKey))
     return mConfig[wifissidKey];
   else
-    return "";
+    return mssid;
 }
 
 void setWifiSSID(fs::FS &fs, String value)
@@ -425,7 +425,7 @@ String getWifiPW(fs::FS &fs)
   if (mConfig.containsKey(wifipwKey))
     return mConfig[wifipwKey];
   else
-    return "";
+    return mpassword;
 }
 
 void setWifiPW(fs::FS &fs, String value)

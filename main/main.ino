@@ -8,42 +8,13 @@
 #include "parsebytes.h"
 #include "time.h"
 #include <ESPmDNS.h>
-// #include "improv.h"
-// #include "improvSerial.h"
 #include <SD_MMC.h>
 #include "ArduinoJson.h"
 #include "esp_bt.h"
 #include "esp_gap_ble_api.h"
+#include "improv.h"
 
-
-
-        
 #include "anglerfishcamsettings.h"
-
-/* This sketch is a extension/expansion/reork of the 'official' ESP32 Camera example
- *  sketch from Expressif:
- *  https://github.com/espressif/arduino-esp32/tree/master/libraries/ESP32/examples/Camera/CameraWebServer
- *
- *  It is modified to allow control of Illumination LED Lamps's (present on some modules),
- *  greater feedback via a status LED, and the HTML contents are present in plain text
- *  for easy modification.
- *
- *  A camera name can now be configured, and wifi details can be stored in an optional
- *  header file to allow easier updated of the repo.
- *
- *  The web UI has had changes to add the lamp control, rotation, a standalone viewer,
- *  more feeedback, new controls and other tweaks and changes,
- * note: Make sure that you have either selected ESP32 AI Thinker,
- *       or another board which has PSRAM enabled to use high resolution camera modes
- */
-
-/*
- *  FOR NETWORK AND HARDWARE SETTINGS COPY OR RENAME 'myconfig.sample.h' TO 'myconfig.h' AND EDIT THAT.
- *
- * By default this sketch will assume an AI-THINKER ESP-CAM and create
- * an accesspoint called "ESP32-CAM-CONNECT" (password: "InsecurePassword")
- *
- */
 
 // Primary config, or defaults.
 struct station
@@ -67,6 +38,12 @@ camera_config_t config;
 // used for non-volatile camera settings
 #include "storage.h"
 
+//*** Improv
+#define MAX_ATTEMPTS_WIFI_CONNECTION 20
+
+uint8_t x_buffer[16];
+uint8_t x_position = 0;
+
 // Sketch Info
 int sketchSize;
 int sketchSpace;
@@ -80,11 +57,19 @@ bool accesspoint = false;
 IPAddress ip;
 IPAddress net;
 IPAddress gw;
+bool is_accesspoint = false;
 
 // Declare external function from app_httpd.cpp
 extern void startCameraServer(int hPort, int sPort);
 extern void serialDump();
 extern void saveCapturedImageGithub();
+
+bool onCommandCallback(improv::ImprovCommand cmd);
+void getAvailableWifiNetworks();
+void set_state(improv::State state);
+void onErrorCallback(improv::Error err);
+void set_error(improv::Error error);
+void send_response(std::vector<uint8_t> &response);
 
 // Names for the Camera. (set these in myconfig.h)
 char myName[] = CAM_NAME;
@@ -94,16 +79,11 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "";
-const char *mpassword = "";
+const char *mssid = "Blynk"; // default values 
+const char *mpassword = "12345678";
 
 #define WIFI_WATCHDOG 15000
 
-// Number of known networks in stationList[]
-int stationCount = sizeof(stationList) / sizeof(stationList[0]);
-
-// If we have AP mode enabled, ignore first entry in the stationList[]
-int firstStation = 0;
 
 // Select between full and simple index as the default.
 char default_index[] = "full";
@@ -114,8 +94,6 @@ boolean sdInitialized = false;
 // DNS server
 const byte DNS_PORT = 53;
 DNSServer dnsServer;
-bool captivePortal = true;
-char apName[64] = "Undefined";
 
 // The app and stream URLs
 char httpURL[64] = {"Undefined"};
@@ -125,7 +103,6 @@ char streamURL[64] = {"Undefined"};
 int8_t streamCount = 0;          // Number of currently active streams
 unsigned long streamsServed = 0; // Total completed streams
 unsigned long imagesServed = 0;  // Total image requests
-
 
 // This will be displayed to identify the firmware
 char myVer[] PROGMEM = __DATE__ " @ " __TIME__;
@@ -155,7 +132,6 @@ static uint64_t t_old = millis();
 bool sendToGithubFlag = false;
 uint32_t frameIndex = -1;
 
-
 // Illumination LAMP and status LED
 int lampVal = 0;       // default to off
 bool autoLamp = false; // Automatic lamp (auto on while camera running)
@@ -173,7 +149,6 @@ bool filesystem = true;
 bool otaEnabled = true;
 char otaPassword[] = "";
 
-bool haveTime = false;
 const char *ntpServer = "";
 const long gmtOffset_sec = 0;
 const int daylightOffset_sec = 0;
@@ -186,91 +161,46 @@ String critERR = "";
 // Debug flag for stream and capture data
 bool debugData;
 
-void debugOn()
-{
-    debugData = true;
-    Serial.println("Camera debug data is enabled (send '{\"d\":1}' for status dump, or any other char to disable debug)");
-}
-
-void debugOff()
-{
-    debugData = false;
-    Serial.println("Camera debug data is disabled (send 'd' for status dump, or any other char to enable debug)");
-}
-
 // Serial input (debugging controls)
 void handleSerial()
 {
     if (Serial.available())
     {
-        String cmd = Serial.readString(); // Serial.read();
-        Serial.print("Serial command");
-        Serial.println(cmd);
+        uint8_t b = Serial.read();
 
-        // Format {"ssid":"Blynk","password":"12345678"}
-
-        StaticJsonDocument<256> doc;
-        deserializeJson(doc, cmd);
-        if (doc.containsKey("ssid") && doc.containsKey("password"))
+        if (parse_improv_serial_byte(x_position, b, x_buffer, onCommandCallback, onErrorCallback))
         {
-
-            mssid = doc["ssid"];
-            mpassword = doc["password"];
-
-            Serial.println("Connecting to Wi-Fi...");
-            WiFi.begin(mssid, mpassword);
-
-            int nTrialWifiConnect = 0;
-            while (WiFi.status() != WL_CONNECTED)
-            {
-                nTrialWifiConnect++;
-                delay(200);
-                Serial.println("Connecting to Wi-Fi...");
-                if (nTrialWifiConnect > 10)
-                {
-                    Serial.println("Failed to connect to Wi-Fi => Rebooting");
-                    ESP.restart();
-                    break;
-                }
-            }
-
-            Serial.println("Connected to Wi-Fi!");
-            setWifiPW(SPIFFS,mssid);
-            setWifiSSID(SPIFFS,mpassword);
+            x_buffer[x_position++] = b;
         }
-        if (doc.containsKey("wifiap"))
+        else
         {
-
-            mssid = "matchboxscope";
-            mpassword = "";
-
-            // Connect to Wi-Fi network with SSID and password
-            Serial.print("Setting AP (Access Point)…");
-            // Remove the password parameter, if you want the AP (Access Point) to be open
-            WiFi.softAP(mssid);
-
-            IPAddress IP = WiFi.softAPIP();
-            Serial.print("AP IP address: ");
-            Serial.println(IP);
+            x_position = 0;
         }
-        else if (doc.containsKey("github"))
+
+        while (Serial.available())
+            Serial.read(); // chomp the buffer
+    }
+}
+
+bool connectWifi(std::string ssid, std::string password)
+{
+    uint8_t count = 0;
+
+    WiFi.begin(ssid.c_str(), password.c_str());
+
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        blink_led(500, 1);
+
+        if (count > MAX_ATTEMPTS_WIFI_CONNECTION)
         {
-            // {"github":"send"}
-            Serial.println("Sending upload page via json");
-            sendToGithubFlag = true;
-            // saveCapturedImageGithub();
-            Serial.println("Github Upload Requested");
+            WiFi.disconnect();
+            return false;
         }
-        else if (doc.containsKey("d"))
-        {
-            // {"d":1}
-            log_d("Serial command: %c", cmd);
-            serialDump();
-        }
+        count++;
     }
 
-    while (Serial.available())
-        Serial.read(); // chomp the buffer
+    return true;
 }
 
 // Notification LED
@@ -279,6 +209,15 @@ void flashLED(int flashtime)
     digitalWrite(LED_PIN, LED_ON);  // On at full power.
     delay(flashtime);               // delay
     digitalWrite(LED_PIN, LED_OFF); // turn Off
+}
+
+void blink_led(int d, int times)
+{
+    for (int j = 0; j < times; j++)
+    {
+        flashLED(d);
+        delay(d);
+    }
 }
 
 // Lamp Control
@@ -314,25 +253,15 @@ void setPWM(int newVal)
     }
 }
 
-void printLocalTime(bool extraData = false)
-{
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo))
-    {
-        Serial.println("Failed to obtain time");
-    }
-    else
-    {
-        Serial.println(&timeinfo, "%H:%M:%S, %A, %B %d %Y");
-    }
-    if (extraData)
-    {
-        Serial.printf("NTP Server: %s, GMT Offset: %li(s), DST Offset: %i(s)\r\n", ntpServer, gmtOffset_sec, daylightOffset_sec);
-    }
-}
 
 void calcURLs()
 {
+    // Note AP details
+    if (is_accesspoint) ip = WiFi.softAPIP();
+    else ip = WiFi.localIP();
+    net = WiFi.subnetMask();
+    gw = WiFi.gatewayIP();
+
     // Set the URL's
     Serial.println("Setting httpURL");
     if (httpPort != 80)
@@ -346,8 +275,9 @@ void calcURLs()
     sprintf(streamURL, "http://%d.%d.%d.%d:%d/", ip[0], ip[1], ip[2], ip[3], streamPort);
 }
 
-void StartCamera()
+bool StartCamera()
 {
+    bool initSuccess = false;
     // Populate camera config structure with hardware and other defaults
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
@@ -395,6 +325,7 @@ void StartCamera()
         // Start a 60 second watchdog timer
         esp_task_wdt_init(60, true);
         esp_task_wdt_add(NULL);
+        initSuccess = false;
     }
     else
     {
@@ -463,306 +394,34 @@ void StartCamera()
         // s->set_vflip(s, 0);           // 0 = disable , 1 = enable
         // s->set_dcw(s, 1);             // 0 = disable , 1 = enable
         // s->set_colorbar(s, 0);        // 0 = disable , 1 = enable
+        initSuccess = true;
+    }
+
+    // get mean intensities
+    camera_fb_t *fb = NULL;
+    for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
+    {
+        // FIXME: Look at the buffer for the camera => flush vs. return
+        log_d("Capturing dummy frame %i", iDummyFrame);
+        fb = esp_camera_fb_get();
+        if (!fb)
+            log_e("Camera frame error", false);
+        esp_camera_fb_return(fb);
+
+        int mean_intensity = get_mean_intensity(fb);
+
+        Serial.print("Mean intensity: ");
+        Serial.println(mean_intensity);
     }
     // We now have camera with default init
-}
-/*
-bool improv_config()
-{
-    // Return 'true' if SSID and password received within IMPROV_CONFIG_TIMEOUT seconds
-    bool connecting = false;
-
-    WiFi.disconnect();
-    WiFi.mode(WIFI_STA);
-
-    int VERSION = 0;
-    String host = "Matchboxscope";
-    String PLATFORMIO_ENV = "unknown";
-    int IMPROV_CONNECT_TIMEOUT = 30;
-
-    improv_serial::global_improv_serial.setup(String("PedalinoMini (TM)"), String(VERSION), PLATFORMIO_ENV, String("Device name: ") + String(host));
-
-    unsigned long startCrono = millis();
-    unsigned long crono = millis() - startCrono;
-    while (!WiFi.isConnected() && crono / 1000 < IMPROV_CONNECT_TIMEOUT)
-    {
-        improv_serial::global_improv_serial.loop();
-        if (!connecting && improv_serial::global_improv_serial.get_state() == improv::STATE_PROVISIONING)
-        {
-            log_d("Connecting to", improv_serial::global_improv_serial.get_ssid());
-            connecting = true;
-        }
-        if (crono % 200 < 5)
-            log_d(crono / 200, IMPROV_CONNECT_TIMEOUT * 5 - 1);
-        crono = millis() - startCrono;
-    }
-
-    /*
-    set_wifi_power_saving_off();
-    leds_off();
-    display_progress_bar_update(1, 1);
-
-    if (WiFi.isConnected())
-    {
-
-        improv_serial::global_improv_serial.loop();
-
-        wifiSSID = WiFi.SSID();
-        wifiPassword = WiFi.psk();
-
-        DPRINT("SSID        : %s\n", WiFi.SSID().c_str());
-        DPRINT("Password    : %s\n", WiFi.psk().c_str());
-
-        eeprom_update_sta_wifi_credentials(WiFi.SSID(), WiFi.psk());
-    }
-    else
-    {
-        improv_serial::global_improv_serial.loop(true);
-        DPRINT("WiFi Provisioning timeout\n");
-    }
-
-    return WiFi.isConnected();
-
-    return true;
-}
-*/
-void WifiSetup()
-{
-    // Feedback that we are now attempting to connect
-    flashLED(300);
-    delay(100);
-    flashLED(300);
-    Serial.println("Starting WiFi");
-
-    // Disable power saving on WiFi to improve responsiveness
-    // (https://github.com/espressif/arduino-esp32/issues/1484)
-    WiFi.setSleep(false);
-
-    Serial.print("Known external SSIDs: ");
-    if (stationCount > firstStation)
-    {
-        for (int i = firstStation; i < stationCount; i++)
-            Serial.printf(" '%s'", stationList[i].ssid);
-    }
-    else
-    {
-        Serial.print("None");
-    }
-    Serial.println();
-    byte mac[6] = {0, 0, 0, 0, 0, 0};
-    WiFi.macAddress(mac);
-    Serial.printf("MAC address: %02X:%02X:%02X:%02X:%02X:%02X\r\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-    int bestStation = -1;
-    long bestRSSI = -1024;
-    char bestSSID[65] = "";
-    uint8_t bestBSSID[6];
-    if (stationCount > firstStation)
-    {
-        // We have a list to scan
-        Serial.printf("Scanning local Wifi Networks\r\n");
-        int stationsFound = WiFi.scanNetworks();
-        Serial.printf("%i networks found\r\n", stationsFound);
-        if (stationsFound > 0)
-        {
-            for (int i = 0; i < stationsFound; ++i)
-            {
-                // Print SSID and RSSI for each network found
-                String thisSSID = WiFi.SSID(i);
-                int thisRSSI = WiFi.RSSI(i);
-                String thisBSSID = WiFi.BSSIDstr(i);
-                Serial.printf("%3i : [%s] %s (%i)", i + 1, thisBSSID.c_str(), thisSSID.c_str(), thisRSSI);
-                // Scan our list of known external stations
-                for (int sta = firstStation; sta < stationCount; sta++)
-                {
-                    if ((strcmp(stationList[sta].ssid, thisSSID.c_str()) == 0) ||
-                        (strcmp(stationList[sta].ssid, thisBSSID.c_str()) == 0))
-                    {
-                        Serial.print("  -  Known!");
-                        // Chose the strongest RSSI seen
-                        if (thisRSSI > bestRSSI)
-                        {
-                            bestStation = sta;
-                            strncpy(bestSSID, thisSSID.c_str(), 64);
-                            // Convert char bssid[] to a byte array
-                            parseBytes(thisBSSID.c_str(), ':', bestBSSID, 6, 16);
-                            bestRSSI = thisRSSI;
-                        }
-                    }
-                }
-                Serial.println();
-            }
-        }
-    }
-    else
-    {
-        // No list to scan, therefore we are an accesspoint
-        accesspoint = true;
-    }
-
-    if (bestStation == -1)
-    {
-        if (!accesspoint)
-        {
-            Serial.println("No known networks found, Trying existing one from perferences.. (set via serial..)");
-            // try existing SSID from prefes
-            // Initiate network connection request (3rd argument, channel = 0 is 'auto')
-            WiFi.begin(getWifiSSID(SPIFFS).c_str(), getWifiPW(SPIFFS).c_str());
-
-            // Wait to connect, or timeout
-            unsigned long start = millis();
-            while ((millis() - start <= WIFI_WATCHDOG) && (WiFi.status() != WL_CONNECTED))
-            {
-                delay(500);
-                Serial.print('.');
-            }
-        }
-        else
-        {
-            Serial.println("AccessPoint mode selected in config");
-        }
-    }
-    else
-    {
-        Serial.printf("Connecting to Wifi Network %d: [%02X:%02X:%02X:%02X:%02X:%02X] %s \r\n",
-                      bestStation, bestBSSID[0], bestBSSID[1], bestBSSID[2], bestBSSID[3],
-                      bestBSSID[4], bestBSSID[5], bestSSID);
-        // Apply static settings if necesscary
-        WiFi.setHostname(mdnsName);
-
-        // Initiate network connection request (3rd argument, channel = 0 is 'auto')
-        WiFi.begin(bestSSID, stationList[bestStation].password, 0, bestBSSID);
-
-        // Wait to connect, or timeout
-        unsigned long start = millis();
-        while ((millis() - start <= WIFI_WATCHDOG) && (WiFi.status() != WL_CONNECTED))
-        {
-            delay(500);
-            Serial.print('.');
-        }
-        // If we have connected, inform user
-        if (WiFi.status() == WL_CONNECTED)
-        {
-            Serial.println("Client connection succeeded");
-            accesspoint = false;
-            // Note IP details
-            ip = WiFi.localIP();
-            net = WiFi.subnetMask();
-            gw = WiFi.gatewayIP();
-            Serial.printf("IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
-            Serial.printf("Netmask   : %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
-            Serial.printf("Gateway   : %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
-            calcURLs();
-            // Flash the LED to show we are connected
-            for (int i = 0; i < 5; i++)
-            {
-                flashLED(50);
-                delay(150);
-            }
-        }
-        else
-        {
-            Serial.println("Client connection Failed");
-            WiFi.disconnect(); // (resets the WiFi scan)
-
-            // try existing SSID from prefes
-            // Initiate network connection request (3rd argument, channel = 0 is 'auto')
-            WiFi.begin(getWifiSSID(SPIFFS).c_str(), getWifiPW(SPIFFS).c_str());
-
-            // Wait to connect, or timeout
-            unsigned long start = millis();
-            while ((millis() - start <= WIFI_WATCHDOG) && (WiFi.status() != WL_CONNECTED))
-            {
-                delay(500);
-                Serial.print('.');
-            }
-        }
-
-        // If we still haven't connected switch to AP mode
-        if (!WiFi.status() == WL_CONNECTED)
-        {
-            Serial.println("Client connection not successful - switching to AP Mode: SSID: 'Matchboxscope'");
-
-            WiFi.disconnect(); // (resets the WiFi scan)
-            WiFi.mode(WIFI_AP);
-            WiFi.softAP("Matchboxscope");
-            Serial.print("[+] AP Created with IP Gateway ");
-            Serial.println(WiFi.softAPIP());
-
-            // Note IP details
-            ip = WiFi.localIP();
-            net = WiFi.subnetMask();
-            gw = WiFi.gatewayIP();
-            Serial.printf("IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
-            Serial.printf("Netmask   : %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
-            Serial.printf("Gateway   : %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
-            calcURLs();
-        }
-    }
-
-    if (accesspoint && (WiFi.status() != WL_CONNECTED))
-    {
-// The accesspoint has been enabled, and we have not connected to any existing networks
-#if defined(AP_CHAN)
-        Serial.println("Setting up Fixed Channel AccessPoint");
-        Serial.print("  SSID     : ");
-        Serial.println(stationList[0].ssid);
-        Serial.print("  Password : ");
-        Serial.println(stationList[0].password);
-        Serial.print("  Channel  : ");
-        Serial.println(AP_CHAN);
-        WiFi.softAP(stationList[0].ssid, stationList[0].password, AP_CHAN);
-#else
-        Serial.println("Setting up AccessPoint");
-        Serial.print("  SSID     : ");
-        Serial.println(stationList[0].ssid);
-        Serial.print("  Password : ");
-        Serial.println(stationList[0].password);
-        WiFi.softAP(stationList[0].ssid, stationList[0].password);
-#endif
-#if defined(AP_ADDRESS)
-        // User has specified the AP details; apply them after a short delay
-        // (https://github.com/espressif/arduino-esp32/issues/985#issuecomment-359157428)
-        delay(100);
-        IPAddress local_IP(AP_ADDRESS);
-        IPAddress gateway(AP_ADDRESS);
-        IPAddress subnet(255, 255, 255, 0);
-        WiFi.softAPConfig(local_IP, gateway, subnet);
-#endif
-        // Note AP details
-        ip = WiFi.softAPIP();
-        net = WiFi.subnetMask();
-        gw = WiFi.gatewayIP();
-        strcpy(apName, stationList[0].ssid);
-        Serial.printf("IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
-        // display IP Address as Bluetooth ID
-        /* FIXME: Too much memory consumption :(
-        esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
-        esp_bt_controller_init(&bt_cfg);
-        esp_bt_controller_enable(ESP_BT_MODE_BLE);
-        esp_ble_gap_set_device_name(WiFi.localIP().toString().c_str());
-        */
-        calcURLs();
-        // Flash the LED to show we are connected
-        for (int i = 0; i < 5; i++)
-        {
-            flashLED(150);
-            delay(50);
-        }
-        // Start the DNS captive portal if requested
-        if (stationList[0].dhcp == true)
-        {
-            Serial.println("Starting Captive Portal");
-            dnsServer.start(DNS_PORT, "*", ip);
-            captivePortal = true;
-        }
-    }
+    return initSuccess;
 }
 
 void handleSerialTask(void *pvParameters)
 {
     Serial.println("Creating task handleSerial");
-    Serial.println("You can enter your wifi password and ssid via a json string e.g.{\"ssid\":\"SSID_NAME\",\"password\":\"SSID-PASSWORD\"}");
+    // Serial.println("You can enter your wifi password and ssid via a json string e.g.{\"ssid\":\"SSID_NAME\",\"password\":\"SSID-PASSWORD\"}");
+    Serial.println("Navigate to https://matchboxscope.github.io/firmware/FLASH.html and enter the Wifi SSID/PW through the GUI");
     while (true)
     {
         handleSerial();
@@ -790,7 +449,7 @@ int get_mean_intensity(camera_fb_t *fb)
     uint8_t *pixels = fb->buf;
     int num_pixels = fb->width * fb->height;
 
-    int sum_intensity = 0;
+    float sum_intensity = 0.;
     for (int i = 0; i < num_pixels; i++)
     {
         sum_intensity += pixels[i];
@@ -802,20 +461,9 @@ int get_mean_intensity(camera_fb_t *fb)
 
 void setup()
 {
+    // Start Serial
     Serial.begin(115200);
     Serial.setDebugOutput(true);
-
-
-    // Debug info
-    Serial.println();
-    Serial.println("====");
-    Serial.print("esp32-cam-webserver: ");
-    Serial.println(myName);
-    Serial.print("Code Built: ");
-    Serial.println(myVer);
-    Serial.print("Base Release: ");
-    Serial.println(baseVersion);
-    Serial.println();
 
     // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
     if (!psramFound())
@@ -828,7 +476,6 @@ void setup()
         }
     }
 
-
     // Start the SPIFFS filesystem before we initialise the camera
     if (filesystem)
     {
@@ -837,30 +484,33 @@ void setup()
     }
 
     // Start (init) the camera
-    StartCamera();
-    if (!isTimelapseAnglerfish)
+    bool camInitSuccess = StartCamera();
+
+    // FIXME: if not successfully initialized, either the cam is broken or we need to fully power it off..not possible yet??
+    if (not camInitSuccess)
     {
-        // initSpeciaCamSettings();
+        log_e("Camera failed to initialize %i", camInitSuccess);
+        ESP.restart();
     }
 
-    // actions done after first flashing
+    // actions done on first boot
     bool isFirstRun = isFirstBoot(SPIFFS);
     if (isFirstRun)
     {
         // disable any Anglerfish-related settings
-        log_d("Remove SPIFFS") ;
+        log_d("Remove SPIFFS");
         removePrefs(SPIFFS);
-        
+
         // set the default settings
         log_d("Write Prefs to SPIFFS");
         writePrefsToSSpiffs(SPIFFS);
 
-        // adjust compiled date
+        // adjust compiled date to ensure next boot won't be detected as first boot
         log_d("Set compiled date");
         setCompiledDate(SPIFFS);
     }
-
-
+    // declare LED PIN
+    pinMode(LED_PIN, OUTPUT);
 
     // check if we want to acquire a stack instead of a single slice
     isStack = getAcquireStack(SPIFFS);
@@ -877,14 +527,10 @@ void setup()
         Serial.println("SD Card Mount Failed");
         // FIXME: This should be indicated in the GUI
         sdInitialized = false;
-        setIsTimelapseAnglerfish(SPIFFS,false); // FIXME: if SD card is missing => streaming mode!
+        setIsTimelapseAnglerfish(SPIFFS, false);
         isTimelapseAnglerfish = false;
         // Flash the LED to show SD card is not connected
-        for (int i = 0; i < 20; i++)
-        {
-            flashLED(50);
-            delay(50);
-        }
+        blink_led(50, 20);
     }
     else
     {
@@ -896,6 +542,7 @@ void setup()
         if (cardType == CARD_NONE)
         {
             Serial.println("No SD card attached");
+            sdInitialized = false;
         }
         else
         {
@@ -914,15 +561,6 @@ void setup()
             11,                            /* Priority of the task */
             NULL,                          /* Task handle. */
             1);                            /* Core where the task should run */
-        xTaskCreatePinnedToCore(
-            handleSerialTask,   /* Function to implement the task */
-            "handleSerialTask", /* Name of the task */
-            10000,              /* Stack size in words */
-            NULL,               /* Task input parameter */
-            1,                  /* Priority of the task */
-            NULL,               /* Task handle. */
-            1);                 /* Core where the task should run */
-        Serial.println("Tasks created...");
     }
 
     // loading previous settings
@@ -930,37 +568,23 @@ void setup()
     timelapseInterval = getTimelapseInterval(SPIFFS);
 
     // Initialise and set the lamp
-    if (lampVal != -1)
-    {
-        ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
-        ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
-        if (autoLamp)
-            setLamp(0); // set default value
-        else
-            setLamp(lampVal);
-    }
+    ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
+    ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
+    if (autoLamp)
+        setLamp(0); // set default value
     else
-    {
-        Serial.println("No lamp, or lamp disabled in config");
-    }
+        setLamp(lampVal);
 
     // Initialise and set the PWM output
-    if (pwmVal != -1)
-    {
-        pinMode(PWM_PIN, OUTPUT);
-        log_d("PWM pin: %d", PWM_PIN);
-        ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
-        ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
-        ledcWrite(pwmChannel, 255);                    // set default value to center so that focus or pump are in ground state
-        delay(30);
-        ledcWrite(pwmChannel, 0); // set default value to center so that focus or pump are in ground state
-    }
-    else
-    {
-        Serial.println("No PWM, or PWM disabled in config");
-    }
+    pinMode(PWM_PIN, OUTPUT);
+    log_d("PWM pin: %d", PWM_PIN);
+    ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
+    ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
+    ledcWrite(pwmChannel, 255);                    // set default value to center so that focus or pump are in ground state
+    delay(30);
+    ledcWrite(pwmChannel, 0); // set default value to center so that focus or pump are in ground state
+
     // test LEDs
-    pinMode(LED_PIN, OUTPUT);
     // visualize we are "on"
     setLamp(20);
     delay(50);
@@ -970,7 +594,7 @@ void setup()
     if (filesystem)
     {
         delay(200); // a short delay to let spi bus settle after camera init
-        if (!isTimelapseAnglerfish) 
+        if (!isTimelapseAnglerfish)
             loadSpiffsToPrefs(SPIFFS);
         Serial.println("internal files System found and mounted");
     }
@@ -983,15 +607,69 @@ void setup()
     initAnglerfish(isTimelapseAnglerfish);
 
     /*
-     * Camera setup complete; initialise the rest of the hardware.
+     * WIFI-related settings
      */
+    // TODO: Try to connect here if credentials are available
+    //  load SSID/PW from SPIFFS
+    String mssid_tmp = getWifiSSID(SPIFFS);
+    String mpassword_tmp = getWifiPW(SPIFFS);
+    Serial.println("SSID: "+mssid_tmp);
+    Serial.println("password: "+mpassword_tmp);
 
-    // Start Wifi and loop until we are connected or have started an AccessPoint
-    while ((WiFi.status() != WL_CONNECTED) && !accesspoint)
+    int randomID = random(10);
+    String ssid = "Matchboxscope-" + String(randomID, HEX);
+
+    // if mssid_tmp is "" open access point
+    if (mssid_tmp == "")
     {
-        WifiSetup();
-        delay(1000);
+        // open Access Point with random ID
+        WiFi.disconnect(); // (resets the WiFi scan)
+        WiFi.mode(WIFI_AP);
+        WiFi.softAP(ssid.c_str(), "");
+        for (int iBlink = 0; iBlink < randomID; iBlink++)
+        {
+            setLamp(100);
+            delay(50);
+            setLamp(0);
+            delay(50);
+        }
+
+        // Print the SSID to the serial monitor
+        Serial.print("Access point SSID: ");
+        Serial.println(ssid);
+        is_accesspoint = true;
     }
+    else
+    { // try to connect to available Network
+        WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
+
+        int nTrialWifiConnect = 0;
+        while (WiFi.status() != WL_CONNECTED)
+        {
+            nTrialWifiConnect++;
+            delay(200);
+            Serial.println("Connecting to Wi-Fi...");
+            if (nTrialWifiConnect > 10)
+            {
+                WiFi.disconnect(); // (resets the WiFi scan)
+                WiFi.mode(WIFI_AP);
+
+                // open Access Point with random ID
+                WiFi.softAP(ssid.c_str(), "");
+                blink_led(100, randomID);
+
+                Serial.println("Failed to connect to Wi-Fi => Creating AP");
+                // Print the SSID to the serial monitor
+                Serial.print("Access point SSID: ");
+                Serial.println(ssid);
+                is_accesspoint = true;
+                break;
+            }
+        }
+    }
+
+    // propagate URLs to GUI
+    calcURLs();
 
     // Set up OTA
     if (otaEnabled)
@@ -1057,22 +735,6 @@ void setup()
     MDNS.addService("http", "tcp", 80);
     Serial.println("Added HTTP service to MDNS server");
 
-    // Set time via NTP server when enabled
-    if (haveTime)
-    {
-        Serial.print("Time: ");
-        configTime(gmtOffset_sec, daylightOffset_sec, ntpServer);
-        printLocalTime(true);
-    }
-    else
-    {
-        Serial.println("Time functions disabled");
-    }
-
-    // Gather static values used when dumping status; these are slow functions, so just do them once during startup
-    sketchSize = ESP.getSketchSize();
-    sketchSpace = ESP.getFreeSketchSpace();
-    sketchMD5 = ESP.getSketchMD5();
 
     // Start the camera server
     startCameraServer(httpPort, streamPort);
@@ -1082,25 +744,11 @@ void setup()
         Serial.printf("\r\nCamera Ready!\r\nUse '%s' to connect\r\n", httpURL);
         Serial.printf("Stream viewer available at '%sview'\r\n", streamURL);
         Serial.printf("Raw stream URL is '%s'\r\n", streamURL);
-#if defined(DEBUG_DEFAULT_ON)
-        debugOn();
-#else
-        debugOff();
-#endif
     }
     else
     {
         Serial.printf("\r\nCamera unavailable due to initialisation errors.\r\n\r\n");
     }
-
-    // Info line; use for Info messages; eg 'This is a Beta!' warnings, etc. as necesscary
-    // Serial.print("\r\nThis is the 4.1 beta\r\n");
-
-    // As a final init step chomp out the serial buffer in case we have recieved mis-keys or garbage during startup
-    while (Serial.available())
-        Serial.read();
-
-
 }
 
 void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int stepMax = 100)
@@ -1117,71 +765,29 @@ void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int 
 void loop()
 {
 
-    /*
-     *  Just loop forever, reconnecting Wifi As necesscary in client mode
-     * The stream and URI handler processes initiated by the startCameraServer() call at the
-     * end of setup() will handle the camera and UI processing from now on.
-     */
+    if (Serial.available() > 0)
+    {
+        uint8_t b = Serial.read();
 
-    /*
-    if (accesspoint)
-    {
-        // Accespoint is permanently up, so just loop, servicing the captive portal as needed
-        // Rather than loop forever, follow the watchdog, in case we later add auto re-scan.
-        unsigned long start = millis();
-        while (millis() - start < WIFI_WATCHDOG)
+        if (parse_improv_serial_byte(x_position, b, x_buffer, onCommandCallback, onErrorCallback))
         {
-            delay(100);
-            if (otaEnabled)
-                ArduinoOTA.handle();
-            handleSerial();
-            if (captivePortal)
-                dnsServer.processNextRequest();
-        }
-    }
-    else
-    {
-        // client mode can fail; so reconnect as appropriate
-        static bool warned = false;
-        if (WiFi.status() == WL_CONNECTED)
-        {
-            // We are connected, wait a bit and re-check
-            if (warned)
-            {
-                // Tell the user if we have just reconnected
-                Serial.println("WiFi reconnected");
-                warned = false;
-            }
-            // loop here for WIFI_WATCHDOG, turning debugData true/false depending on serial input..
-            unsigned long start = millis();
-            while (millis() - start < WIFI_WATCHDOG)
-            {
-                delay(100);
-                if (otaEnabled)
-                    ArduinoOTA.handle();
-                handleSerial();
-            }
+            x_buffer[x_position++] = b;
         }
         else
         {
-            // disconnected; attempt to reconnect
-            if (!warned)
-            {
-                // Tell the user if we just disconnected
-                WiFi.disconnect(); // ensures disconnect is complete, wifi scan cleared
-                Serial.println("WiFi disconnected, retrying");
-                warned = true;
-            }
-            WifiSetup();
+            x_position = 0;
         }
+              for(int i = 0; i < 16; i++)
+      {
+        Serial.println(x_buffer[i]);
+      }  
     }
-    */
+
     // Timelapse Imaging
     // Perform timelapse imaging
     // timelapseInterval - will be changed by the httpd server
     // isTimelapseGeneral - will be changed by the httpd server //= getIsTimelapseGeneral(SPIFFS);
 
-    
     if (isTimelapseGeneral and timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
     {
         writePrefsToSSpiffs(SPIFFS);
@@ -1198,6 +804,7 @@ void loop()
         { // FIXME: We could have a switch in the GUI for this settig
             // acquire a stack
             // FIXME: decide which method to use..
+            log_d("Acquireing stack");
             imagesServed++;
             acquireFocusStack(filename, 10);
         }
@@ -1225,11 +832,11 @@ void loadAnglerfishCamSettings(int tExposure, int mGain)
     Serial.println("Resetting Camera Sensor Settings...");
 
     // Apply manual settings for the camera
-    sensor_t * s = esp_camera_sensor_get();
+    sensor_t *s = esp_camera_sensor_get();
     s->set_framesize(s, FRAMESIZE_QVGA);
-    s->set_gain_ctrl(s, 0); // auto gain off (1 or 0)
-    s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
-    s->set_agc_gain(s, mGain); // set gain manually (0 - 30)
+    s->set_gain_ctrl(s, 0);         // auto gain off (1 or 0)
+    s->set_exposure_ctrl(s, 0);     // auto exposure off (1 or 0)
+    s->set_agc_gain(s, mGain);      // set gain manually (0 - 30)
     s->set_aec_value(s, tExposure); // set exposure manually (0-1200)
 
     // digest the settings => warmup camera
@@ -1291,33 +898,35 @@ void initAnglerfish(bool isTimelapseAnglerfish)
 
         // FIXME: Make a stack of exposure values
         if (getAcquireStack(SPIFFS))
+        {
+            log_d("Acquire stack", 1);
             acquireFocusStack(filename, stepSize, stepMin = 0, stepMax = stepMax);
+        }
         else
         {
             // under expose
-            loadAnglerfishCamSettings(1,0);
+            loadAnglerfishCamSettings(1, 0);
             saveImage(filename + "texp_1", 0);
 
             // over expose
-            loadAnglerfishCamSettings(5,0);
+            loadAnglerfishCamSettings(5, 0);
             saveImage(filename + "texp_5", 0);
 
             // over expose
-            loadAnglerfishCamSettings(10,0);
+            loadAnglerfishCamSettings(10, 0);
             saveImage(filename + "texp_10", 0);
 
             // over expose
-            loadAnglerfishCamSettings(50,0);
+            loadAnglerfishCamSettings(50, 0);
             saveImage(filename + "texp_50", 0);
 
             // over expose
-            loadAnglerfishCamSettings(100,0);
+            loadAnglerfishCamSettings(100, 0);
             saveImage(filename + "texp_100", 0);
 
             // over expose
-            loadAnglerfishCamSettings(500,0);
+            loadAnglerfishCamSettings(500, 0);
             saveImage(filename + "texp_500", 0);
-
         }
 
         imagesServed++;
@@ -1348,4 +957,180 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     {
         Serial.println("In livestreaming mode. Connecting to pre-set Wifi");
     }
+}
+
+/*************+
+ *
+ * IMPROV
+ *
+ * ***********
+ */
+
+std::vector<std::string> getLocalUrl()
+{
+    return {
+        // URL where user can finish onboarding or use device
+        // Recommended to use website hosted by device
+        String("http://" + WiFi.localIP().toString()).c_str()};
+}
+
+void onErrorCallback(improv::Error err)
+{
+    blink_led(2000, 3);
+}
+
+bool onCommandCallback(improv::ImprovCommand cmd)
+{
+
+    switch (cmd.command)
+    {
+    case improv::Command::GET_CURRENT_STATE:
+    {
+        if ((WiFi.status() == WL_CONNECTED))
+        {
+            set_state(improv::State::STATE_PROVISIONED);
+            std::vector<uint8_t> data = improv::build_rpc_response(improv::GET_CURRENT_STATE, getLocalUrl(), false);
+            send_response(data);
+        }
+        else
+        {
+            set_state(improv::State::STATE_AUTHORIZED);
+        }
+
+        break;
+    }
+
+    case improv::Command::WIFI_SETTINGS:
+    {
+        if (cmd.ssid.length() == 0)
+        {
+            set_error(improv::Error::ERROR_INVALID_RPC);
+            break;
+        }
+
+        set_state(improv::STATE_PROVISIONING);
+
+        if (connectWifi(cmd.ssid, cmd.password))
+        {
+
+            blink_led(100, 3);
+
+            // TODO: Persist credentials here
+            Serial.println("Connected to Wi-Fi!");
+            setWifiPW(SPIFFS, cmd.ssid.c_str());
+            setWifiSSID(SPIFFS, cmd.password.c_str());
+
+            set_state(improv::STATE_PROVISIONED);
+            std::vector<uint8_t> data = improv::build_rpc_response(improv::WIFI_SETTINGS, getLocalUrl(), false);
+            send_response(data);
+            // server.begin();
+        }
+        else
+        {
+            set_state(improv::STATE_STOPPED);
+            set_error(improv::Error::ERROR_UNABLE_TO_CONNECT);
+        }
+
+        break;
+    }
+
+    case improv::Command::GET_DEVICE_INFO:
+    {
+        std::vector<std::string> infos = {
+            // Firmware name
+            "ImprovWiFiDemo",
+            // Firmware version
+            "1.0.0",
+            // Hardware chip/variant
+            "ESP32",
+            // Device name
+            "SimpleWebServer"};
+        std::vector<uint8_t> data = improv::build_rpc_response(improv::GET_DEVICE_INFO, infos, false);
+        send_response(data);
+        break;
+    }
+
+    case improv::Command::GET_WIFI_NETWORKS:
+    {
+        getAvailableWifiNetworks();
+        break;
+    }
+
+    default:
+    {
+        set_error(improv::ERROR_UNKNOWN_RPC);
+        return false;
+    }
+    }
+
+    return true;
+}
+
+void getAvailableWifiNetworks()
+{
+    int networkNum = WiFi.scanNetworks();
+
+    for (int id = 0; id < networkNum; ++id)
+    {
+        std::vector<uint8_t> data = improv::build_rpc_response(
+            improv::GET_WIFI_NETWORKS, {WiFi.SSID(id), String(WiFi.RSSI(id)), (WiFi.encryptionType(id) == WIFI_AUTH_OPEN ? "NO" : "YES")}, false);
+        send_response(data);
+        delay(1);
+    }
+    // final response
+    std::vector<uint8_t> data =
+        improv::build_rpc_response(improv::GET_WIFI_NETWORKS, std::vector<std::string>{}, false);
+    send_response(data);
+}
+
+void set_state(improv::State state)
+{
+
+    std::vector<uint8_t> data = {'I', 'M', 'P', 'R', 'O', 'V'};
+    data.resize(11);
+    data[6] = improv::IMPROV_SERIAL_VERSION;
+    data[7] = improv::TYPE_CURRENT_STATE;
+    data[8] = 1;
+    data[9] = state;
+
+    uint8_t checksum = 0x00;
+    for (uint8_t d : data)
+        checksum += d;
+    data[10] = checksum;
+
+    Serial.write(data.data(), data.size());
+}
+
+void send_response(std::vector<uint8_t> &response)
+{
+    std::vector<uint8_t> data = {'I', 'M', 'P', 'R', 'O', 'V'};
+    data.resize(9);
+    data[6] = improv::IMPROV_SERIAL_VERSION;
+    data[7] = improv::TYPE_RPC_RESPONSE;
+    data[8] = response.size();
+    data.insert(data.end(), response.begin(), response.end());
+
+    uint8_t checksum = 0x00;
+    for (uint8_t d : data)
+        checksum += d;
+    data.push_back(checksum);
+
+    Serial.write(data.data(), data.size());
+}
+
+void set_error(improv::Error error)
+{
+    std::vector<uint8_t> data = {'I', 'M', 'P', 'R', 'O', 'V'};
+    data.resize(11);
+    data[6] = improv::IMPROV_SERIAL_VERSION;
+    data[7] = improv::TYPE_ERROR_STATE;
+    data[8] = 1;
+    data[9] = error;
+
+    uint8_t checksum = 0x00;
+    for (uint8_t d : data)
+        checksum += d;
+    data[10] = checksum;
+
+    Serial.write(data.data(), data.size());
 }
