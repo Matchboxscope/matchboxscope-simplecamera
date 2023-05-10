@@ -56,7 +56,7 @@ extern char baseVersion[];
 extern IPAddress ip;
 extern IPAddress net;
 extern IPAddress gw;
-extern bool accesspoint;
+extern bool is_accesspoint;
 extern int httpPort;
 extern int streamPort;
 extern char httpURL[];
@@ -145,7 +145,7 @@ void serialDump()
         String bssid = WiFi.BSSIDstr();
         Serial.printf("WiFi BSSID: %s\r\n", bssid.c_str());
     Serial.printf("WiFi IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
-    if (!accesspoint)
+    if (!is_accesspoint)
     {
         Serial.printf("WiFi Netmask: %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
         Serial.printf("WiFi Gateway: %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
@@ -787,7 +787,7 @@ static esp_err_t dump_handler(httpd_req_t *req)
         String bssid = WiFi.BSSIDstr();
         d += sprintf(d, "BSSID: %s<br>\n", bssid.c_str());
     d += sprintf(d, "IP address: %d.%d.%d.%d<br>\n", ip[0], ip[1], ip[2], ip[3]);
-    if (!accesspoint)
+    if (!is_accesspoint)
     {
         d += sprintf(d, "Netmask: %d.%d.%d.%d<br>\n", net[0], net[1], net[2], net[3]);
         d += sprintf(d, "Gateway: %d.%d.%d.%d<br>\n", gw[0], gw[1], gw[2], gw[3]);

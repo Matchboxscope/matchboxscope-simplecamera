@@ -51,7 +51,7 @@ String sketchMD5;
 
 // Start with accesspoint mode disabled, wifi setup will activate it if
 // no known networks are found, and WIFI_AP_ENABLE has been defined
-bool accesspoint = false;
+
 
 // IP address, Netmask and Gateway, populated when connected
 IPAddress ip;
@@ -647,9 +647,9 @@ void setup()
         while (WiFi.status() != WL_CONNECTED)
         {
             nTrialWifiConnect++;
-            delay(200);
+            delay(250);
             Serial.println("Connecting to Wi-Fi...");
-            if (nTrialWifiConnect > 10)
+            if (nTrialWifiConnect > 20)
             {
                 WiFi.disconnect(); // (resets the WiFi scan)
                 WiFi.mode(WIFI_AP);
@@ -764,7 +764,7 @@ void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int 
 
 void loop()
 {
-
+    /*
     if (Serial.available() > 0)
     {
         uint8_t b = Serial.read();
@@ -782,6 +782,7 @@ void loop()
         Serial.println(x_buffer[i]);
       }  
     }
+    */
 
     // Timelapse Imaging
     // Perform timelapse imaging
