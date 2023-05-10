@@ -52,7 +52,6 @@ String sketchMD5;
 // Start with accesspoint mode disabled, wifi setup will activate it if
 // no known networks are found, and WIFI_AP_ENABLE has been defined
 
-
 // IP address, Netmask and Gateway, populated when connected
 IPAddress ip;
 IPAddress net;
@@ -79,11 +78,10 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "Blynk"; // default values 
+const char *mssid = "Blynk"; // default values
 const char *mpassword = "12345678";
 
 #define WIFI_WATCHDOG 15000
-
 
 // Select between full and simple index as the default.
 char default_index[] = "full";
@@ -130,7 +128,7 @@ int minFrameTime = 0;
 int timelapseInterval = -1;
 static uint64_t t_old = millis();
 bool sendToGithubFlag = false;
-uint32_t frameIndex = -1;
+uint32_t frameIndex = 0;
 
 // Illumination LAMP and status LED
 int lampVal = 0;       // default to off
@@ -253,12 +251,13 @@ void setPWM(int newVal)
     }
 }
 
-
 void calcURLs()
 {
     // Note AP details
-    if (is_accesspoint) ip = WiFi.softAPIP();
-    else ip = WiFi.localIP();
+    if (is_accesspoint)
+        ip = WiFi.softAPIP();
+    else
+        ip = WiFi.localIP();
     net = WiFi.subnetMask();
     gw = WiFi.gatewayIP();
 
@@ -326,6 +325,18 @@ bool StartCamera()
         esp_task_wdt_init(60, true);
         esp_task_wdt_add(NULL);
         initSuccess = false;
+
+        // try it again
+        esp_err_t err = esp_camera_init(&config);
+        if (err != ESP_OK)
+        {
+            log_d("Second attempt worked..");
+        }
+        else
+        {
+            log_d("Second attempt to initialize failed too");
+            ESP.restart();
+        }
     }
     else
     {
@@ -480,7 +491,7 @@ void setup()
     if (filesystem)
     {
         filesystemStart();
-        delay(200); // a short delay to let spi bus settle after SPIFFS init
+        delay(500); // a short delay to let spi bus settle after SPIFFS init
     }
 
     // Start (init) the camera
@@ -594,8 +605,7 @@ void setup()
     if (filesystem)
     {
         delay(200); // a short delay to let spi bus settle after camera init
-        if (!isTimelapseAnglerfish)
-            loadSpiffsToPrefs(SPIFFS);
+        loadSpiffsToPrefs(SPIFFS);
         Serial.println("internal files System found and mounted");
     }
     else
@@ -613,8 +623,8 @@ void setup()
     //  load SSID/PW from SPIFFS
     String mssid_tmp = getWifiSSID(SPIFFS);
     String mpassword_tmp = getWifiPW(SPIFFS);
-    Serial.println("SSID: "+mssid_tmp);
-    Serial.println("password: "+mpassword_tmp);
+    Serial.println("SSID: " + mssid_tmp);
+    Serial.println("password: " + mpassword_tmp);
 
     int randomID = random(10);
     String ssid = "Matchboxscope-" + String(randomID, HEX);
@@ -735,7 +745,6 @@ void setup()
     MDNS.addService("http", "tcp", 80);
     Serial.println("Added HTTP service to MDNS server");
 
-
     // Start the camera server
     startCameraServer(httpPort, streamPort);
 
@@ -780,7 +789,7 @@ void loop()
               for(int i = 0; i < 16; i++)
       {
         Serial.println(x_buffer[i]);
-      }  
+      }
     }
     */
 
@@ -869,9 +878,6 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
         Serial.println("In timelapse anglerfish mode.");
 
-        // load previous settings
-        // loadSpiffsToPrefs(SPIFFS);
-
         // override LED settings
         autoLamp = true;
         lampVal = 255;
@@ -900,11 +906,12 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         // FIXME: Make a stack of exposure values
         if (getAcquireStack(SPIFFS))
         {
-            log_d("Acquire stack", 1);
-            acquireFocusStack(filename, stepSize, stepMin = 0, stepMax = stepMax);
+            log_d("Anglerfish: Acquire stack", 1);
+            acquireFocusStack(filename, stepSize, stepMin = stepMin, stepMax = stepMax);
         }
         else
         {
+            log_d("Anglerfish: Acquire Exposure Series");
             // under expose
             loadAnglerfishCamSettings(1, 0);
             saveImage(filename + "texp_1", 0);

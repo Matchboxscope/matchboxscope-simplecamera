@@ -302,6 +302,8 @@ void loadSpiffsToPrefs(fs::FS &fs)
       xclk = xclkPref;
     myRotation = doc["rotate"].as<int>();
 
+    isStack = doc["isStack"];
+
     // Process camera settings
     s->set_framesize(s, (framesize_t)doc["framesize"].as<int>());
     s->set_quality(s, doc["quality"].as<int>());
@@ -442,7 +444,7 @@ uint32_t getFrameIndex(fs::FS &fs)
   if (mConfig.containsKey(frameIndexKey))
     return mConfig[frameIndexKey];
   else
-    return -1;
+    return 0;
 }
 
 void setFrameIndex(fs::FS &fs, int value)
@@ -457,15 +459,17 @@ static const char isStackKey[] = "isStack";
 bool getAcquireStack(fs::FS &fs)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
+  bool value = 0;
   if (mConfig.containsKey(isStackKey))
-    return mConfig[isStackKey];
-  else
-    return -1;
+    value = mConfig[isStackKey];
+  log_d("Reading get AcquireStack to%i", value);    
+  return value;
 }
 
 void setAcquireStack(fs::FS &fs, bool value)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
+  log_d("Writing set AcquireStack to%i", value);
   mConfig[isStackKey] = value;
   writeJsonToSSpiffs(mConfig, SPIFFS);
 }

@@ -82,6 +82,7 @@ extern unsigned long xclk;
 extern int sensorPID;
 extern int sdInitialized;
 extern bool isTimelapseGeneral;
+extern bool isStack;
 
 bool IS_STREAM_PAUSE = false;
 
@@ -506,6 +507,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.print("Changing stack is enable to: ");
         Serial.println(val);
         setAcquireStack(SPIFFS, val);
+        isStack = val;
     }
     else if (!strcmp(variable, "isTimelapse")){
         Serial.print("Changing timelapse is enable to: ");
@@ -696,7 +698,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"stream_url\":\"%s\",", streamURL);
         p += sprintf(p, "\"sdcard\":%d,", sdInitialized);
         //p += sprintf(p, "\"compiled_date\":%llu,", compileDate);
-        //p += sprintf(p, "\"stack\":\"%u\",", isStackAcquire);
+        p += sprintf(p, "\"isStack\":\"%u\",", isStack);
         p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
     }
     *p++ = '}';
