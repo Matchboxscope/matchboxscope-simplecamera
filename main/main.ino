@@ -16,6 +16,13 @@
 
 #include "anglerfishcamsettings.h"
 
+// camera configuration
+#define CAM_NAME "Matchboxscope"
+#define MDNS_NAME "Matchboxscope"
+// camera module
+// #define CAMERA_MODEL_AI_THINKER
+#define CAMERA_MODEL_XIAO
+
 // Primary config, or defaults.
 struct station
 {
@@ -23,7 +30,7 @@ struct station
     const char password[65];
     const bool dhcp;
 }; // do no edit
-#include "myconfig.h"
+
 
 // Upstream version string
 #include "version.h"
@@ -70,10 +77,10 @@ void onErrorCallback(improv::Error err);
 void set_error(improv::Error error);
 void send_response(std::vector<uint8_t> &response);
 
-// Names for the Camera. (set these in myconfig.h)
+// Names for the Camera
 char myName[] = CAM_NAME;
 char mdnsName[] = MDNS_NAME;
-// Ports for http and stream (override in myconfig.h)
+// Ports for http and stream
 int httpPort = 80;
 int streamPort = 81;
 
@@ -114,8 +121,7 @@ int sensorPID;
 // See https://github.com/espressif/esp32-camera/issues/150#issuecomment-726473652 et al.
 unsigned long xclk = 8;
 
-// initial rotation
-// can be set in myconfig.h
+// initial rotation of the camera image
 int myRotation = 0;
 bool isStack = false;
 bool isTimelapseAnglerfish = false;
@@ -298,12 +304,14 @@ bool StartCamera()
     config.pin_reset = RESET_GPIO_NUM;
     config.xclk_freq_hz = xclk * 1000000;
     config.pixel_format = PIXFORMAT_JPEG;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+
     // Low(ish) default framesize and quality
     config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;
-    config.fb_location = CAMERA_FB_IN_PSRAM;
-    config.fb_count = 2;
     config.grab_mode = CAMERA_GRAB_LATEST;
+    config.jpeg_quality = 12;
+    config.fb_count = 2;
+
 
     // camera init
     esp_err_t err = esp_camera_init(&config);
