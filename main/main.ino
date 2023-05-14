@@ -21,7 +21,7 @@
 #define MDNS_NAME "Matchboxscope"
 // camera module
 // #define CAMERA_MODEL_AI_THINKER
-#define CAMERA_MODEL_XIAO
+//#define CAMERA_MODEL_XIAO
 
 // Primary config, or defaults.
 struct station
@@ -210,9 +210,11 @@ bool connectWifi(std::string ssid, std::string password)
 // Notification LED
 void flashLED(int flashtime)
 {
+    #ifdef CAMERA_MODEL_AI_THINKER
     digitalWrite(LED_PIN, LED_ON);  // On at full power.
     delay(flashtime);               // delay
     digitalWrite(LED_PIN, LED_OFF); // turn Off
+    #endif
 }
 
 void blink_led(int d, int times)
@@ -248,7 +250,7 @@ void setPWM(int newVal)
     if (newVal != -1)
     {
         // Apply a logarithmic function to the scale.
-        int current = round((pow(2, (1 + (newVal * 0.02))) - 2) / 6 * pwmMax);
+        int current = newVal;
         ledcWrite(pwmChannel, current);
         Serial.print("Current: ");
         Serial.print(newVal);
@@ -535,7 +537,7 @@ void setup()
     isStack = getAcquireStack(SPIFFS);
 
     // only for Anglerfish if already focussed
-    isTimelapseAnglerfish = getIsTimelapseAnglerfish(SPIFFS); // set the global variable for the loop function
+    isTimelapseAnglerfish = getIsTimelapseAnglerfish(); // set the global variable for the loop function
 
     // initialize SD card before LED!!
     // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
@@ -546,7 +548,7 @@ void setup()
         Serial.println("SD Card Mount Failed");
         // FIXME: This should be indicated in the GUI
         sdInitialized = false;
-        setIsTimelapseAnglerfish(SPIFFS, false);
+        setIsTimelapseAnglerfish(false);
         isTimelapseAnglerfish = false;
         // Flash the LED to show SD card is not connected
         blink_led(50, 20);
@@ -631,9 +633,7 @@ void setup()
     //  load SSID/PW from SPIFFS
     String mssid_tmp = getWifiSSID(SPIFFS);
     String mpassword_tmp = getWifiPW(SPIFFS);
-    Serial.println("SSID: " + mssid_tmp);
-    Serial.println("password: " + mpassword_tmp);
-
+    
     int randomID = random(10);
     String ssid = "Matchboxscope-" + String(randomID, HEX);
 
@@ -659,14 +659,20 @@ void setup()
     }
     else
     { // try to connect to available Network
-        WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
+        log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
+        const char* ssid1 = "BenMur";
+        const char* password1 = "MurBen3128";
+        WiFi.begin(ssid1, password1);
+        WiFi.setSleep(false);
+        log_d("Initi Wifi works");
 
         int nTrialWifiConnect = 0;
         while (WiFi.status() != WL_CONNECTED)
         {
+            log_d("Connecting to Wi-Fi...");
             nTrialWifiConnect++;
             delay(250);
-            Serial.println("Connecting to Wi-Fi...");
+            
             if (nTrialWifiConnect > 20)
             {
                 WiFi.disconnect(); // (resets the WiFi scan)

@@ -1037,8 +1037,8 @@ static esp_err_t anglerfish_handler(httpd_req_t *req)
     writePrefsToSSpiffs(SPIFFS);
   
     // this will set the anglerfish into a periodic deep-sleep awake timelapse
-    setIsTimelapseAnglerfish(SPIFFS, true);
-    getIsTimelapseAnglerfish(SPIFFS);
+    setIsTimelapseAnglerfish(true);
+    getIsTimelapseAnglerfish();
     static char json_response[1024];
     char *p = json_response;
     *p++ = '{';

@@ -16,8 +16,8 @@ extern void writeJsonToSSpiffs(fs::FS &fs, DynamicJsonDocument doc);
 extern bool isFirstBoot(fs::FS &fs);
 
 // Anglerfish Modes 
-extern bool getIsTimelapseAnglerfish(fs::FS &fs);
-extern void setIsTimelapseAnglerfish(fs::FS &fs, bool value);
+extern bool getIsTimelapseAnglerfish(); // in preferences not spiffs!
+extern void setIsTimelapseAnglerfish(bool value); // in preferences not spiffs!
 extern String getWifiSSID(fs::FS &fs);
 extern void setWifiSSID(fs::FS &fs, String value);
 extern String getWifiPW(fs::FS &fs);

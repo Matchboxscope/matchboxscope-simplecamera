@@ -366,21 +366,6 @@ bool isFirstBoot(fs::FS &fs)
   return !stored_date.equals(compiled_date);
 }
 
-bool getIsTimelapseAnglerfish(fs::FS &fs)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  if (mConfig.containsKey("isTimelapseAnglerfish"))
-    return mConfig["isTimelapseAnglerfish"];
-  else
-    return false;
-}
-
-void setIsTimelapseAnglerfish(fs::FS &fs, bool isTimelapseAnglerfish)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  mConfig["isTimelapseAnglerfish"] = isTimelapseAnglerfish;
-  writeJsonToSSpiffs(mConfig, SPIFFS);
-}
 
 static const char isTimelapseGeneralKey[] = "isTimelapseGeneral";
 bool getIsTimelapseGeneral(fs::FS &fs)
@@ -503,4 +488,37 @@ void setCompiledDate(fs::FS &fs)
   serializeJsonPretty(mConfig, Serial);
   writeJsonToSSpiffs(mConfig, SPIFFS);
   
+}
+
+
+#include <Preferences.h>
+
+static const char isAnglerfishModeKey[] = "isTimelapseAnglerfish";
+
+void setIsTimelapseAnglerfish(bool value) {
+  // Open preferences with a namespace/key pair
+  // it seems this survives a corruption of the SPIFFS!
+  Preferences preferences;
+  isTimelapseAnglerfish = value;
+  preferences.begin("myApp", false);
+
+  // Save the boolean value
+  preferences.putBool(isAnglerfishModeKey, value);
+
+  // Close the preferences
+  preferences.end();
+}
+
+bool getIsTimelapseAnglerfish(){
+  // Open preferences with a namespace/key pair
+  Preferences preferences;
+  preferences.begin("myApp", false);
+
+  // Load the boolean value
+  bool value = preferences.getBool(isAnglerfishModeKey, false);
+
+  // Close the preferences
+  preferences.end();
+
+  return value;
 }
