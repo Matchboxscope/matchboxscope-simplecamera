@@ -1,7 +1,7 @@
 #include "esp_camera.h"
 #include "jsonlib.h"
 #include "storage.h"
-
+#include <Preferences.h>
 
 // These are defined in the main .ino file
 extern void flashLED(int flashtime);
@@ -339,32 +339,6 @@ void loadSpiffsToPrefs(fs::FS &fs)
   }
 }
 
-bool isFirstBoot(fs::FS &fs)
-{
-  // get compiled date/time
-  static const char compiled_date[] PROGMEM = __DATE__ " " __TIME__;
-
-  // FIXME: What if stored_date is not set yet?
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  String stored_date = mConfig["stored_date"];
-  Serial.println("Stored date:");
-  Serial.println(stored_date);
-  Serial.println("compiled_date:");
-  Serial.println(compiled_date);
-
-  Serial.print("First run? ");
-  if (!stored_date.equals(compiled_date))
-  {
-    Serial.println("yes");
-  }
-  else
-  {
-    Serial.println("no");
-  }
-  mConfig["stored_date"] = compiled_date;
-  writeJsonToSSpiffs(mConfig, SPIFFS);
-  return !stored_date.equals(compiled_date);
-}
 
 
 static const char isTimelapseGeneralKey[] = "isTimelapseGeneral";
@@ -490,17 +464,19 @@ void setCompiledDate(fs::FS &fs)
   
 }
 
+/* Important settings should go to the preferences - sometimes, if we 
+write to SPIFFS and the file gets corrupted or empty, we will loose these settings*/
 
-#include <Preferences.h>
 
-static const char isAnglerfishModeKey[] = "isTimelapseAnglerfish";
+static const char isAnglerfishModeKey[] = "anglerfish";
+static const char groupName[] = "matchbox";
 
 void setIsTimelapseAnglerfish(bool value) {
   // Open preferences with a namespace/key pair
   // it seems this survives a corruption of the SPIFFS!
   Preferences preferences;
   isTimelapseAnglerfish = value;
-  preferences.begin("myApp", false);
+  preferences.begin(groupName, false);
 
   // Save the boolean value
   preferences.putBool(isAnglerfishModeKey, value);
@@ -512,7 +488,7 @@ void setIsTimelapseAnglerfish(bool value) {
 bool getIsTimelapseAnglerfish(){
   // Open preferences with a namespace/key pair
   Preferences preferences;
-  preferences.begin("myApp", false);
+  preferences.begin(groupName, false);
 
   // Load the boolean value
   bool value = preferences.getBool(isAnglerfishModeKey, false);
@@ -521,4 +497,31 @@ bool getIsTimelapseAnglerfish(){
   preferences.end();
 
   return value;
+}
+
+static const char dateKey[] = "date";
+
+bool isFirstBoot() {
+  // get compiled date/time
+  static const char compiled_date[] PROGMEM = __DATE__ " " __TIME__;
+
+  Preferences preferences;
+  preferences.begin(groupName, false);
+  String stored_date = preferences.getString(dateKey, "");  // FIXME
+
+  Serial.println("Stored date:");
+  Serial.println(stored_date);
+  Serial.println("Compiled date:");
+  Serial.println(compiled_date);
+
+  Serial.print("First run? ");
+  if (!stored_date.equals(compiled_date)) {
+    Serial.println("yes");
+  } else {
+    Serial.println("no");
+  }
+
+  preferences.putString(dateKey, compiled_date); // FIXME?
+  preferences.end();
+  return !stored_date.equals(compiled_date);
 }

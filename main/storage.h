@@ -13,7 +13,7 @@ extern DynamicJsonDocument readPrefs(fs::FS &fs);
 extern void removePrefs(fs::FS &fs);
 extern void writePrefsToSSpiffs(fs::FS &fs);
 extern void writeJsonToSSpiffs(fs::FS &fs, DynamicJsonDocument doc);
-extern bool isFirstBoot(fs::FS &fs);
+extern bool isFirstBoot();
 
 // Anglerfish Modes 
 extern bool getIsTimelapseAnglerfish(); // in preferences not spiffs!

@@ -515,7 +515,7 @@ void setup()
     }
 
     // actions done on first boot
-    bool isFirstRun = isFirstBoot(SPIFFS);
+    bool isFirstRun = isFirstBoot();
     if (isFirstRun)
     {
         // disable any Anglerfish-related settings
@@ -660,20 +660,20 @@ void setup()
     else
     { // try to connect to available Network
         log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
-        const char* ssid1 = "BenMur";
-        const char* password1 = "MurBen3128";
-        WiFi.begin(ssid1, password1);
+        WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
         WiFi.setSleep(false);
         log_d("Initi Wifi works");
 
         int nTrialWifiConnect = 0;
+        int nTrialWifiConnectMax = 30;
+        int tWaitWifiConnect = 500;
         while (WiFi.status() != WL_CONNECTED)
         {
             log_d("Connecting to Wi-Fi...");
             nTrialWifiConnect++;
-            delay(250);
+            delay(tWaitWifiConnect);
             
-            if (nTrialWifiConnect > 20)
+            if (nTrialWifiConnect > nTrialWifiConnectMax)
             {
                 WiFi.disconnect(); // (resets the WiFi scan)
                 WiFi.mode(WIFI_AP);
@@ -857,7 +857,7 @@ void loadAnglerfishCamSettings(int tExposure, int mGain)
 
     // Apply manual settings for the camera
     sensor_t *s = esp_camera_sensor_get();
-    s->set_framesize(s, FRAMESIZE_QVGA);
+    s->set_framesize(s, FRAMESIZE_SVGA); //FRAMESIZE_QVGA);
     s->set_gain_ctrl(s, 0);         // auto gain off (1 or 0)
     s->set_exposure_ctrl(s, 0);     // auto exposure off (1 or 0)
     s->set_agc_gain(s, mGain);      // set gain manually (0 - 30)

@@ -1033,6 +1033,7 @@ static esp_err_t anglerfish_handler(httpd_req_t *req)
     for(int iFlash = 0; iFlash<10; iFlash++) flashLED(75);
     Serial.println("Going into deepsleep mode");
 
+    if(sdInitialized){
     // save all settings from gui
     writePrefsToSSpiffs(SPIFFS);
   
@@ -1052,6 +1053,18 @@ static esp_err_t anglerfish_handler(httpd_req_t *req)
     SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
     delay(2000);
     ESP.restart();
+    }
+    else{
+    static char json_response[1024];
+    char *p = json_response;
+    *p++ = '{';
+    p += sprintf(p, "SD card not initialized - please insert SD card and restart");
+    *p++ = '}';
+    *p++ = 0;
+    httpd_resp_set_type(req, "application/json");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_send(req, json_response, strlen(json_response));
+    }   
     return 0;
 }
 
