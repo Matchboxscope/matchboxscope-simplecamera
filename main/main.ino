@@ -153,7 +153,7 @@ const int pwmMax = pow(2, pwmresolution) - 1;
 
 bool filesystem = true;
 
-bool otaEnabled = true;
+bool otaEnabled = false;
 char otaPassword[] = "";
 
 const char *ntpServer = "";
@@ -346,7 +346,9 @@ bool StartCamera()
         }
         else
         {
-            log_d("Second attempt to initialize failed too");
+            log_d("Second attempt to initialize failed too, resetting SPIFFS; probably something went wrong with a weird combination of camera settings");
+            removePrefs(SPIFFS);
+
             ESP.restart();
         }
     }

@@ -254,6 +254,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
             setLamp(0);
         return ESP_FAIL;
     }
+    log_d("Acquire second frame");
     camera_fb_t* fb = convolution(fb_);
 
     httpd_resp_set_type(req, "image/jpeg");
@@ -1476,18 +1477,34 @@ Image Processing
 
 camera_fb_t* convolution(camera_fb_t* input) {
   // Create a new dummy frame buffer for the result
-  camera_fb_t* result = esp_camera_fb_get();
-  if (!result) {
-    // Handle memory allocation error
-    return NULL;
-  }
+
+    int FRAME_WIDTH = input->width;
+    int FRAME_HEIGHT = input->height;
+    size_t frame_size = FRAME_WIDTH * FRAME_HEIGHT * 3; // Assuming pixel format is PIXFORMAT_RGB565
+
+    camera_fb_t* frame_buffer = (camera_fb_t*)malloc(sizeof(camera_fb_t));
+    if (!frame_buffer) {
+        log_e("Failed to allocate frame buffer");
+        return NULL;
+    }
+
+    frame_buffer->width = FRAME_WIDTH;
+    frame_buffer->height = FRAME_HEIGHT;
+    frame_buffer->len = frame_size;
+    frame_buffer->buf = (uint8_t*)malloc(frame_size);
+    if (!frame_buffer->buf) {
+        log_e("Failed to allocate frame buffer memory");
+        free(frame_buffer);
+        return NULL;
+    }
+
 
   // Set the result frame buffer parameters
-  result->width = input->width;
-  result->height = input->height;
-  result->len = input->len;
-  result->format = input->format;
-  result->buf = new uint8_t[result->len];
+  frame_buffer->width = input->width;
+  frame_buffer->height = input->height;
+  frame_buffer->len = input->len;
+  frame_buffer->format = input->format;
+  frame_buffer->buf = new uint8_t[frame_buffer->len];
 
   // Perform convolution on each pixel of the input frame buffer
     int kernelSize = 7;
@@ -1518,9 +1535,9 @@ camera_fb_t* convolution(camera_fb_t* input) {
       sum = min(max(sum, (float)0.), (float)255.);
 
       // Set the convolved pixel value in the result frame buffer
-      result->buf[y * input->width + x] = sum;
+      frame_buffer->buf[y * input->width + x] = sum;
     }
   }
 
-  return result;
+  return frame_buffer;
 }
