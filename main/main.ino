@@ -51,6 +51,9 @@ camera_config_t config;
 uint8_t x_buffer[16];
 uint8_t x_position = 0;
 
+int frameWidth = 0;  // Width of the image frame
+int frameHeight = 0; // Height of the image frame
+
 // Sketch Info
 int sketchSize;
 int sketchSpace;
@@ -162,8 +165,7 @@ extern bool saveImage(String filename, int lensValue);
 // will be returned for all http requests
 String critERR = "";
 
-// Debug flag for stream and capture data
-bool debugData;
+
 
 // Serial input (debugging controls)
 void handleSerial()
@@ -480,6 +482,8 @@ int get_mean_intensity(camera_fb_t *fb)
     return mean_intensity;
 }
 
+#define WIFI_SSID "Blynk"
+#define WIFI_PASS "12345678"
 void setup()
 {
     // Start Serial
@@ -543,6 +547,7 @@ void setup()
     // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
     // with a different pin mode.
     // 1-bit mode as suggested here:https://dr-mntn.net/2021/02/using-the-sd-card-in-1-bit-mode-on-the-esp32-cam-from-ai-thinker
+    /*
     if (!SD_MMC.begin("/sdcard", true))
     { // FIXME: this sometimes leads to issues Unix vs. Windows formating - text encoding? Sometimes it copies to "sdcard" => Autoformating does this!!!
         Serial.println("SD Card Mount Failed");
@@ -570,20 +575,21 @@ void setup()
             Serial.println(cardType);
         }
     }
-
     // Start threads for background frame publishing and serial handling // FIXME: Is this really necessary?
     if (!isTimelapseAnglerfish)
     {
         xTaskCreatePinnedToCore(
-            saveCapturedImageGithubTask,   /* Function to implement the task */
-            "saveCapturedImageGithubTask", /* Name of the task */
-            10000,                         /* Stack size in words */
-            NULL,                          /* Task input parameter */
-            11,                            /* Priority of the task */
-            NULL,                          /* Task handle. */
-            1);                            /* Core where the task should run */
+            saveCapturedImageGithubTask,   
+            "saveCapturedImageGithubTask", 
+            10000,                         
+            NULL,                          
+            11,                            
+            NULL,                          
+            0);                            
     }
-
+    */
+    sdInitialized = false;
+    
     // loading previous settings
     imagesServed = getFrameIndex(SPIFFS);
     timelapseInterval = getTimelapseInterval(SPIFFS);
@@ -761,7 +767,7 @@ void setup()
 
     // Start the camera server
     startCameraServer(httpPort, streamPort);
-
+    
     if (critERR.length() == 0)
     {
         Serial.printf("\r\nCamera Ready!\r\nUse '%s' to connect\r\n", httpURL);
@@ -892,11 +898,9 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
         Serial.println("In timelapse anglerfish mode.");
 
-        // override LED settings
-        autoLamp = true;
+        // override LED intensity settings
         lampVal = 255;
-        autoLamp = true;
-        setLamp(lampVal);
+        setLamp(lampVal*autoLamp);
 
         // Save image to SD card
         uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;

@@ -47,6 +47,7 @@ extern void setPWM(int newVal);
 extern void loadSpiffsToPrefs(fs::FS &fs);
 extern bool isTimelapseAnglerfish;
 
+camera_fb_t* convolution(camera_fb_t* input);
 bool saveImage(String filename, int lensValue=-1);
 
 // External variables declared in the main .ino
@@ -72,7 +73,6 @@ extern bool autoLamp;
 extern int pwmVal;
 extern bool filesystem;
 extern String critERR;
-extern bool debugData;
 extern int sketchSize;
 extern int sketchSpace;
 extern String sketchMD5;
@@ -187,9 +187,52 @@ void serialDump()
     return;
 }
 
+
+esp_err_t bitmap_handler(httpd_req_t *req) {
+    camera_fb_t *fb = NULL;
+    esp_err_t res = ESP_OK;
+
+
+    camera_config_t config;
+    config.pixel_format = PIXFORMAT_RAW;
+
+    sensor_t *sensor = esp_camera_sensor_get();
+    sensor->pixformat = PIXFORMAT_RAW;
+
+    fb = esp_camera_fb_get();
+    if (!fb) {
+        Serial.println("CAPTURE: failed to acquire frame");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "image/bmp");
+    httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.bmp");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+    size_t fb_len = 0;
+    if (fb->format == PIXFORMAT_RGB565) {
+        fb_len = fb->len;
+        res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+    } else {
+        res = ESP_FAIL;
+        Serial.println("Capture Error: Non-RGB565 image returned by camera module");
+    }
+
+    esp_camera_fb_return(fb);
+    fb = NULL;
+
+
+    
+    sensor->pixformat = PIXFORMAT_JPEG;
+
+    return res;
+}
+
+
 static esp_err_t capture_handler(httpd_req_t *req)
 {
-    camera_fb_t *fb = NULL;
+    camera_fb_t *fb_ = NULL;
     esp_err_t res = ESP_OK;
 
     Serial.println("Capture Requested");
@@ -202,8 +245,8 @@ static esp_err_t capture_handler(httpd_req_t *req)
 
     int64_t fr_start = esp_timer_get_time();
 
-    fb = esp_camera_fb_get();
-    if (!fb)
+    fb_ = esp_camera_fb_get();
+    if (!fb_)
     {
         Serial.println("CAPTURE: failed to acquire frame");
         httpd_resp_send_500(req);
@@ -211,6 +254,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
             setLamp(0);
         return ESP_FAIL;
     }
+    camera_fb_t* fb = convolution(fb_);
 
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
@@ -228,6 +272,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
         Serial.println("Capture Error: Non-JPEG image returned by camera module");
     }
     esp_camera_fb_return(fb);
+    esp_camera_fb_return(fb_);
     fb = NULL;
 
     // save to SD card if existent
@@ -235,10 +280,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
     saveImage(filename);
 
     int64_t fr_end = esp_timer_get_time();
-    if (debugData)
-    {
-        Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
-    }
+    Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
     imagesServed++;
     setFrameIndex(SPIFFS, imagesServed);
     if (autoLamp && (lampVal != -1))
@@ -368,12 +410,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
         int32_t frame_delay = (minFrameTime > frame_time) ? minFrameTime - frame_time : 0;
         delay(frame_delay);
 
-        if (debugData)
-        {
-            Serial.printf("MJPG: %uB %ums, delay: %ums, framerate (%.1ffps)\r\n",
-                          (uint32_t)(_jpg_buf_len),
-                          (uint32_t)frame_time, frame_delay, 1000.0 / (uint32_t)(frame_time + frame_delay));
-        }
         last_frame = esp_timer_get_time();
     }
 
@@ -1192,6 +1228,11 @@ void startCameraServer(int hPort, int sPort)
         .method = HTTP_GET,
         .handler = capture_handler,
         .user_ctx = NULL};
+    httpd_uri_t bitmap_uri = {
+        .uri = "/bitmap",
+        .method = HTTP_GET,
+        .handler = bitmap_handler,
+        .user_ctx = NULL};
     httpd_uri_t style_uri = {
         .uri = "/style.css",
         .method = HTTP_GET,
@@ -1290,6 +1331,7 @@ void startCameraServer(int hPort, int sPort)
         httpd_register_uri_handler(camera_httpd, &uploadgithub_uri);
         httpd_register_uri_handler(camera_httpd, &mac_uri);
         httpd_register_uri_handler(camera_httpd, &anglerfish_uri);
+        httpd_register_uri_handler(camera_httpd, &bitmap_uri);
     }
 
     config.server_port = sPort;
@@ -1379,10 +1421,7 @@ bool saveImage(String filename, int lensValue)
         }
 
         int64_t fr_end = esp_timer_get_time();
-        if (debugData)
-        {
-            Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
-        }
+
         if (autoLamp && (lampVal != -1))
         {
             setLamp(0);
@@ -1423,4 +1462,65 @@ bool saveImage(String filename, int lensValue)
     IS_STREAM_PAUSE = false;
 
     return res;
+}
+
+
+
+/*
+
+Image Processing
+
+
+*/
+
+
+camera_fb_t* convolution(camera_fb_t* input) {
+  // Create a new dummy frame buffer for the result
+  camera_fb_t* result = esp_camera_fb_get();
+  if (!result) {
+    // Handle memory allocation error
+    return NULL;
+  }
+
+  // Set the result frame buffer parameters
+  result->width = input->width;
+  result->height = input->height;
+  result->len = input->len;
+  result->format = input->format;
+  result->buf = new uint8_t[result->len];
+
+  // Perform convolution on each pixel of the input frame buffer
+    int kernelSize = 7;
+    float kernel[kernelSize][kernelSize] = {
+    {0.0009, 0.0060, 0.0217, 0.0447, 0.0217, 0.0060, 0.0009},
+    {0.0060, 0.0401, 0.1466, 0.3040, 0.1466, 0.0401, 0.0060},
+    {0.0217, 0.1466, 0.5352, 1.1065, 0.5352, 0.1466, 0.0217},
+    {0.0447, 0.3040, 1.1065, 2.2945, 1.1065, 0.3040, 0.0447},
+    {0.0217, 0.1466, 0.5352, 1.1065, 0.5352, 0.1466, 0.0217},
+    {0.0060, 0.0401, 0.1466, 0.3040, 0.1466, 0.0401, 0.0060},
+    {0.0009, 0.0060, 0.0217, 0.0447, 0.0217, 0.0060, 0.0009}
+    };
+
+
+  for (int y = kernelSize / 2; y < input->height - kernelSize / 2; y++) {
+    for (int x = kernelSize / 2; x < input->width - kernelSize / 2; x++) {
+      float sum = 0;
+
+      // Apply the convolution kernel to the pixel neighborhood
+      for (int ky = 0; ky < kernelSize; ky++) {
+        for (int kx = 0; kx < kernelSize; kx++) {
+          int pixel = input->buf[(y + ky - kernelSize / 2) * input->width + (x + kx - kernelSize / 2)];
+          sum += kernel[ky][kx] * pixel;
+        }
+      }
+
+      // Ensure the pixel value is within the valid range
+      sum = min(max(sum, (float)0.), (float)255.);
+
+      // Set the convolved pixel value in the result frame buffer
+      result->buf[y * input->width + x] = sum;
+    }
+  }
+
+  return result;
 }
