@@ -163,10 +163,9 @@ void writePrefsToSSpiffs(fs::FS &fs)
   jsonDoc["timelapseInterval"] = timelapseInterval;
   jsonDoc["isTimelapseGeneral"] = isTimelapseGeneral;
   
-
-
   // FIXME: ADD ALL THE values from the json document to variabels!
   writeJsonToSSpiffs(jsonDoc, SPIFFS);
+  jsonDoc.clear();
 
 }
 
@@ -331,6 +330,7 @@ void loadSpiffsToPrefs(fs::FS &fs)
     s->set_dcw(s, doc["dcw"].as<int>());
     s->set_colorbar(s, doc["colorbar"].as<int>());
 
+    doc.clear();
 
   }
   else

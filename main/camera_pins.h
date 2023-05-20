@@ -5,17 +5,18 @@
  *   Defaults to AI-THINKER CAM module
  *
  */
-#define LED_PIN 33 // Status led
-#define PWM_PIN 12
+
 #define LED_ON LOW   // - Pin is inverted.
 #define LED_OFF HIGH //
-#define LAMP_PIN 4   // LED FloodLamp.
+
 
 #if defined(CAMERA_MODEL_AI_THINKER)
 //
 // AI Thinker
 // https://github.com/SeeedDocument/forum_doc/raw/master/reg/ESP32_CAM_V1.6.pdf
 //
+#define LED_PIN 33 // Status led
+#define LAMP_PIN 4   // LED FloodLamp.
 #define PWDN_GPIO_NUM 32
 #define RESET_GPIO_NUM -1
 #define XCLK_GPIO_NUM 0
@@ -38,6 +39,9 @@
 // ESP XIAO
 // https://dl.espressif.com/dl/schematics/ESP-WROVER-KIT_SCH-2.pdf
 //
+#define LED_PIN LED_BUILTIN // Status led
+#define LAMP_PIN -1   // LED FloodLamp.
+#define PWM_PIN -1
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
 #define XCLK_GPIO_NUM 10

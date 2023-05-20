@@ -14,6 +14,8 @@
 #include "esp_gap_ble_api.h"
 #include "improv.h"
 
+#include "spinlock.h"
+
 #include "anglerfishcamsettings.h"
 
 // camera configuration
@@ -21,7 +23,7 @@
 #define MDNS_NAME "Matchboxscope"
 // camera module
 // #define CAMERA_MODEL_AI_THINKER
-//#define CAMERA_MODEL_XIAO
+// #define CAMERA_MODEL_XIAO
 
 // Primary config, or defaults.
 struct station
@@ -30,7 +32,6 @@ struct station
     const char password[65];
     const bool dhcp;
 }; // do no edit
-
 
 // Upstream version string
 #include "version.h"
@@ -165,8 +166,6 @@ extern bool saveImage(String filename, int lensValue);
 // will be returned for all http requests
 String critERR = "";
 
-
-
 // Serial input (debugging controls)
 void handleSerial()
 {
@@ -188,16 +187,12 @@ void handleSerial()
     }
 }
 
-bool connectWifi(std::string ssid, std::string password)
-{
+bool connectWifi(std::string ssid, std::string password){
     uint8_t count = 0;
-
     WiFi.begin(ssid.c_str(), password.c_str());
-
     while (WiFi.status() != WL_CONNECTED)
     {
         blink_led(500, 1);
-
         if (count > MAX_ATTEMPTS_WIFI_CONNECTION)
         {
             WiFi.disconnect();
@@ -205,18 +200,17 @@ bool connectWifi(std::string ssid, std::string password)
         }
         count++;
     }
-
     return true;
 }
 
 // Notification LED
 void flashLED(int flashtime)
 {
-    #ifdef CAMERA_MODEL_AI_THINKER
+#ifdef CAMERA_MODEL_AI_THINKER
     digitalWrite(LED_PIN, LED_ON);  // On at full power.
     delay(flashtime);               // delay
     digitalWrite(LED_PIN, LED_OFF); // turn Off
-    #endif
+#endif
 }
 
 void blink_led(int d, int times)
@@ -261,6 +255,138 @@ void setPWM(int newVal)
     }
 }
 
+void initWifi()
+{
+    /*
+     * WIFI-related settings
+     */
+    // TODO: Try to connect here if credentials are available
+    //  load SSID/PW from SPIFFS
+    String mssid_tmp = getWifiSSID(SPIFFS);
+    String mpassword_tmp = getWifiPW(SPIFFS);
+
+    int randomID = random(10);
+    String ssid = "Matchboxscope-" + String(randomID, HEX);
+
+    // if mssid_tmp is "" open access point
+    if (mssid_tmp == "")
+    {
+        // open Access Point with random ID
+        WiFi.disconnect(); // (resets the WiFi scan)
+        WiFi.mode(WIFI_AP);
+        WiFi.softAP(ssid.c_str(), "");
+        for (int iBlink = 0; iBlink < randomID; iBlink++)
+        {
+            setLamp(100);
+            delay(50);
+            setLamp(0);
+            delay(50);
+        }
+
+        // Print the SSID to the serial monitor
+        Serial.print("Access point SSID: ");
+        Serial.println(ssid);
+        is_accesspoint = true;
+    }
+    else
+    { // try to connect to available Network
+        log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
+        WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
+        WiFi.setSleep(false);
+        log_d("Initi Wifi works");
+
+        int nTrialWifiConnect = 0;
+        int nTrialWifiConnectMax = 30;
+        int tWaitWifiConnect = 500;
+        while (WiFi.status() != WL_CONNECTED)
+        {
+            log_d("Connecting to Wi-Fi...");
+            nTrialWifiConnect++;
+            delay(tWaitWifiConnect);
+
+            if (nTrialWifiConnect > nTrialWifiConnectMax)
+            {
+                WiFi.disconnect(); // (resets the WiFi scan)
+                WiFi.mode(WIFI_AP);
+
+                // open Access Point with random ID
+                WiFi.softAP(ssid.c_str(), "");
+                blink_led(100, randomID);
+
+                Serial.println("Failed to connect to Wi-Fi => Creating AP");
+                // Print the SSID to the serial monitor
+                Serial.print("Access point SSID: ");
+                Serial.println(ssid);
+                is_accesspoint = true;
+                break;
+            }
+        }
+    }
+}
+
+void setupOTA()
+{
+    // Set up OTA
+    if (otaEnabled)
+    {
+        // Start OTA once connected
+        Serial.println("Setting up OTA");
+        // Port defaults to 3232
+        // ArduinoOTA.setPort(3232);
+        // Hostname defaults to esp3232-[MAC]
+        ArduinoOTA.setHostname(mdnsName);
+        // No authentication by default
+        if (strlen(otaPassword) != 0)
+        {
+            ArduinoOTA.setPassword(otaPassword);
+            Serial.printf("OTA Password: %s\n\r", otaPassword);
+        }
+        else
+        {
+            Serial.printf("\r\nNo OTA password has been set! (insecure)\r\n\r\n");
+        }
+        ArduinoOTA
+            .onStart([]()
+                     {
+                String type;
+                if (ArduinoOTA.getCommand() == U_FLASH)
+                    type = "sketch";
+                else // U_SPIFFS
+                    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
+                    type = "filesystem";
+                Serial.println("Start updating " + type);
+                // Stop the camera since OTA will crash the module if it is running.
+                // the unit will need rebooting to restart it, either by OTA on success, or manually by the user
+                Serial.println("Stopping Camera");
+                esp_err_t err = esp_camera_deinit();
+                critERR = "<h1>OTA Has been started</h1><hr><p>Camera has Halted!</p>";
+                critERR += "<p>Wait for OTA to finish and reboot, or <a href=\"control?var=reboot&val=0\" title=\"Reboot Now (may interrupt OTA)\">reboot manually</a> to recover</p>"; })
+            .onEnd([]()
+                   { Serial.println("\r\nEnd"); })
+            .onProgress([](unsigned int progress, unsigned int total)
+                        { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
+            .onError([](ota_error_t error)
+                     {
+                Serial.printf("Error[%u]: ", error);
+                if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+                else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+                else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+                else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+                else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
+        ArduinoOTA.begin();
+    }
+    else
+    {
+        Serial.println("OTA is disabled");
+
+        if (!MDNS.begin(mdnsName))
+        {
+            Serial.println("Error setting up MDNS responder!");
+        }
+        Serial.println("mDNS responder started");
+    }
+}
+
 void calcURLs()
 {
     // Note AP details
@@ -287,6 +413,8 @@ void calcURLs()
 bool StartCamera()
 {
     bool initSuccess = false;
+#if defined(CAMERA_MODEL_AI_THINKER)
+
     // Populate camera config structure with hardware and other defaults
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
@@ -315,7 +443,57 @@ bool StartCamera()
     config.grab_mode = CAMERA_GRAB_LATEST;
     config.jpeg_quality = 12;
     config.fb_count = 2;
-
+#elif defined(CAMERA_MODEL_XIAO)
+    Serial.println("Xiao Sense Camera initialization");
+    config.ledc_channel = LEDC_CHANNEL_0;
+    config.ledc_timer = LEDC_TIMER_0;
+    config.pin_d0 = Y2_GPIO_NUM;
+    config.pin_d1 = Y3_GPIO_NUM;
+    config.pin_d2 = Y4_GPIO_NUM;
+    config.pin_d3 = Y5_GPIO_NUM;
+    config.pin_d4 = Y6_GPIO_NUM;
+    config.pin_d5 = Y7_GPIO_NUM;
+    config.pin_d6 = Y8_GPIO_NUM;
+    config.pin_d7 = Y9_GPIO_NUM;
+    config.pin_xclk = XCLK_GPIO_NUM;
+    config.pin_pclk = PCLK_GPIO_NUM;
+    config.pin_vsync = VSYNC_GPIO_NUM;
+    config.pin_href = HREF_GPIO_NUM;
+    config.pin_sccb_sda = SIOD_GPIO_NUM;
+    config.pin_sccb_scl = SIOC_GPIO_NUM;
+    config.pin_pwdn = PWDN_GPIO_NUM;
+    config.pin_reset = RESET_GPIO_NUM;
+    config.xclk_freq_hz = 20000000;
+    config.frame_size = FRAMESIZE_UXGA;
+    config.pixel_format = PIXFORMAT_JPEG;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+    config.jpeg_quality = 12;
+    config.fb_count = 1;
+    if (config.pixel_format == PIXFORMAT_JPEG)
+    {
+        if (psramFound())
+        {
+            config.jpeg_quality = 10;
+            config.fb_count = 2;
+            config.grab_mode = CAMERA_GRAB_LATEST;
+        }
+        else
+        {
+            // Limit the frame size when PSRAM is not available
+            config.frame_size = FRAMESIZE_SVGA;
+            config.fb_location = CAMERA_FB_IN_DRAM;
+        }
+    }
+    else
+    {
+        // Best option for face detection/recognition
+        config.frame_size = FRAMESIZE_240X240;
+#if CONFIG_IDF_TARGET_ESP32S3
+        config.fb_count = 2;
+#endif
+    }
+#endif
 
     // camera init
     esp_err_t err = esp_camera_init(&config);
@@ -490,7 +668,17 @@ void setup()
 {
     // Start Serial
     Serial.begin(115200);
-    Serial.setDebugOutput(true);
+
+    delay(500);
+    Serial.println("...............");
+    // start wifi AP or connect to AP
+    initWifi();
+
+    // propagate URLs to GUI
+    calcURLs();
+
+    // setup OTA
+    setupOTA();
 
     // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
     if (!psramFound())
@@ -504,11 +692,8 @@ void setup()
     }
 
     // Start the SPIFFS filesystem before we initialise the camera
-    if (filesystem)
-    {
-        filesystemStart();
-        delay(500); // a short delay to let spi bus settle after SPIFFS init
-    }
+    filesystemStart();
+    delay(500); // a short delay to let spi bus settle after SPIFFS init
 
     // Start (init) the camera
     bool camInitSuccess = StartCamera();
@@ -549,7 +734,7 @@ void setup()
     // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
     // with a different pin mode.
     // 1-bit mode as suggested here:https://dr-mntn.net/2021/02/using-the-sd-card-in-1-bit-mode-on-the-esp32-cam-from-ai-thinker
-    /*
+
     if (!SD_MMC.begin("/sdcard", true))
     { // FIXME: this sometimes leads to issues Unix vs. Windows formating - text encoding? Sometimes it copies to "sdcard" => Autoformating does this!!!
         Serial.println("SD Card Mount Failed");
@@ -577,21 +762,21 @@ void setup()
             Serial.println(cardType);
         }
     }
+
     // Start threads for background frame publishing and serial handling // FIXME: Is this really necessary?
     if (!isTimelapseAnglerfish)
     {
+        log_d("Starting saveCapturedImageGithubTask", "");
         xTaskCreatePinnedToCore(
-            saveCapturedImageGithubTask,   
-            "saveCapturedImageGithubTask", 
-            10000,                         
-            NULL,                          
-            11,                            
-            NULL,                          
-            0);                            
+            saveCapturedImageGithubTask,
+            "saveCapturedImageGithubTask",
+            10000,
+            NULL,
+            11,
+            NULL,
+            0);
     }
-    */
-    sdInitialized = false;
-    
+
     // loading previous settings
     imagesServed = getFrameIndex(SPIFFS);
     timelapseInterval = getTimelapseInterval(SPIFFS);
@@ -599,6 +784,7 @@ void setup()
     // Initialise and set the lamp
     ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
     ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
+    log_d("LED pin: %d", LAMP_PIN);
     if (autoLamp)
         setLamp(0); // set default value
     else
@@ -634,142 +820,13 @@ void setup()
     // before we start the WIFI - check if we are in deep-sleep/anglerfishmode
     initAnglerfish(isTimelapseAnglerfish);
 
-    /*
-     * WIFI-related settings
-     */
-    // TODO: Try to connect here if credentials are available
-    //  load SSID/PW from SPIFFS
-    String mssid_tmp = getWifiSSID(SPIFFS);
-    String mpassword_tmp = getWifiPW(SPIFFS);
-    
-    int randomID = random(10);
-    String ssid = "Matchboxscope-" + String(randomID, HEX);
-
-    // if mssid_tmp is "" open access point
-    if (mssid_tmp == "")
-    {
-        // open Access Point with random ID
-        WiFi.disconnect(); // (resets the WiFi scan)
-        WiFi.mode(WIFI_AP);
-        WiFi.softAP(ssid.c_str(), "");
-        for (int iBlink = 0; iBlink < randomID; iBlink++)
-        {
-            setLamp(100);
-            delay(50);
-            setLamp(0);
-            delay(50);
-        }
-
-        // Print the SSID to the serial monitor
-        Serial.print("Access point SSID: ");
-        Serial.println(ssid);
-        is_accesspoint = true;
-    }
-    else
-    { // try to connect to available Network
-        log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
-        WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
-        WiFi.setSleep(false);
-        log_d("Initi Wifi works");
-
-        int nTrialWifiConnect = 0;
-        int nTrialWifiConnectMax = 30;
-        int tWaitWifiConnect = 500;
-        while (WiFi.status() != WL_CONNECTED)
-        {
-            log_d("Connecting to Wi-Fi...");
-            nTrialWifiConnect++;
-            delay(tWaitWifiConnect);
-            
-            if (nTrialWifiConnect > nTrialWifiConnectMax)
-            {
-                WiFi.disconnect(); // (resets the WiFi scan)
-                WiFi.mode(WIFI_AP);
-
-                // open Access Point with random ID
-                WiFi.softAP(ssid.c_str(), "");
-                blink_led(100, randomID);
-
-                Serial.println("Failed to connect to Wi-Fi => Creating AP");
-                // Print the SSID to the serial monitor
-                Serial.print("Access point SSID: ");
-                Serial.println(ssid);
-                is_accesspoint = true;
-                break;
-            }
-        }
-    }
-
-    // propagate URLs to GUI
-    calcURLs();
-
-    // Set up OTA
-    if (otaEnabled)
-    {
-        // Start OTA once connected
-        Serial.println("Setting up OTA");
-        // Port defaults to 3232
-        // ArduinoOTA.setPort(3232);
-        // Hostname defaults to esp3232-[MAC]
-        ArduinoOTA.setHostname(mdnsName);
-        // No authentication by default
-        if (strlen(otaPassword) != 0)
-        {
-            ArduinoOTA.setPassword(otaPassword);
-            Serial.printf("OTA Password: %s\n\r", otaPassword);
-        }
-        else
-        {
-            Serial.printf("\r\nNo OTA password has been set! (insecure)\r\n\r\n");
-        }
-        ArduinoOTA
-            .onStart([]()
-                     {
-                String type;
-                if (ArduinoOTA.getCommand() == U_FLASH)
-                    type = "sketch";
-                else // U_SPIFFS
-                    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-                    type = "filesystem";
-                Serial.println("Start updating " + type);
-                // Stop the camera since OTA will crash the module if it is running.
-                // the unit will need rebooting to restart it, either by OTA on success, or manually by the user
-                Serial.println("Stopping Camera");
-                esp_err_t err = esp_camera_deinit();
-                critERR = "<h1>OTA Has been started</h1><hr><p>Camera has Halted!</p>";
-                critERR += "<p>Wait for OTA to finish and reboot, or <a href=\"control?var=reboot&val=0\" title=\"Reboot Now (may interrupt OTA)\">reboot manually</a> to recover</p>"; })
-            .onEnd([]()
-                   { Serial.println("\r\nEnd"); })
-            .onProgress([](unsigned int progress, unsigned int total)
-                        { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
-            .onError([](ota_error_t error)
-                     {
-                Serial.printf("Error[%u]: ", error);
-                if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-                else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-                else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-                else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-                else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
-        ArduinoOTA.begin();
-    }
-    else
-    {
-        Serial.println("OTA is disabled");
-
-        if (!MDNS.begin(mdnsName))
-        {
-            Serial.println("Error setting up MDNS responder!");
-        }
-        Serial.println("mDNS responder started");
-    }
-
     // MDNS Config -- note that if OTA is NOT enabled this needs prior steps!
     MDNS.addService("http", "tcp", 80);
     Serial.println("Added HTTP service to MDNS server");
 
     // Start the camera server
     startCameraServer(httpPort, streamPort);
-    
+
     if (critERR.length() == 0)
     {
         Serial.printf("\r\nCamera Ready!\r\nUse '%s' to connect\r\n", httpURL);
@@ -865,11 +922,11 @@ void loadAnglerfishCamSettings(int tExposure, int mGain)
 
     // Apply manual settings for the camera
     sensor_t *s = esp_camera_sensor_get();
-    s->set_framesize(s, FRAMESIZE_SVGA); //FRAMESIZE_QVGA);
-    s->set_gain_ctrl(s, 0);         // auto gain off (1 or 0)
-    s->set_exposure_ctrl(s, 0);     // auto exposure off (1 or 0)
-    s->set_agc_gain(s, mGain);      // set gain manually (0 - 30)
-    s->set_aec_value(s, tExposure); // set exposure manually (0-1200)
+    s->set_framesize(s, FRAMESIZE_SVGA); // FRAMESIZE_QVGA);
+    s->set_gain_ctrl(s, 0);              // auto gain off (1 or 0)
+    s->set_exposure_ctrl(s, 0);          // auto exposure off (1 or 0)
+    s->set_agc_gain(s, mGain);           // set gain manually (0 - 30)
+    s->set_aec_value(s, tExposure);      // set exposure manually (0-1200)
 
     // digest the settings => warmup camera
     camera_fb_t *fb = NULL;
@@ -891,31 +948,33 @@ void loadAnglerfishCamSettings(int tExposure, int mGain)
 
 void initAnglerfish(bool isTimelapseAnglerfish)
 {
-
+    log_d("Anglerfishmode is: %i", isTimelapseAnglerfish);
     if (isTimelapseAnglerfish)
     {
-        // activate LED FIXME:
+// activate LED FIXME:
+#ifdef CAMERA_MODEL_AI_THINKER
         rtc_gpio_hold_dis(GPIO_NUM_4);
-
+#endif
         // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
         Serial.println("In timelapse anglerfish mode.");
 
         // override LED intensity settings
         lampVal = 255;
-        setLamp(lampVal*autoLamp);
+        setLamp(lampVal * autoLamp);
 
         // Save image to SD card
+        Serial.println("1");
         uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;
-
+        Serial.println("2");
         // FIXME: decide which method to use..
         setFrameIndex(SPIFFS, frameIndex);
-
+        Serial.println("3");
         // Get the compile date and time as a string
         String compileDate = String(__DATE__) + " " + String(__TIME__);
         // Remove spaces and colons from the compile date and time string
         compileDate.replace(" ", "_");
         compileDate.replace(":", "");
-
+        Serial.println("1");
         // Create a filename with the compile date and time string
         String filename = "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed);
 
