@@ -33,6 +33,7 @@
 #include "index_ov2640.h"
 #include "index_ov3660.h"
 #include "index_other.h"
+#include "index_holo.h"
 #include "css.h"
 #include "favicons.h"
 #include "logo.h"
@@ -1299,6 +1300,15 @@ static esp_err_t index_handler(httpd_req_t *req)
     }
 }
 
+static esp_err_t holo_handler(httpd_req_t *req)
+{
+    Serial.println("Holo index page requested");
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
+    return httpd_resp_send(req, (const char *)index_holo_html, index_holo_html_len);
+
+}
+
 void startCameraServer(int hPort, int sPort)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -1308,6 +1318,11 @@ void startCameraServer(int hPort, int sPort)
         .uri = "/",
         .method = HTTP_GET,
         .handler = index_handler,
+        .user_ctx = NULL};
+    httpd_uri_t index_holo_html_uri = {
+        .uri = "/holo",
+        .method = HTTP_GET,
+        .handler = holo_handler,
         .user_ctx = NULL};
     httpd_uri_t status_uri = {
         .uri = "/status",
@@ -1421,7 +1436,9 @@ void startCameraServer(int hPort, int sPort)
             httpd_register_uri_handler(camera_httpd, &cmd_uri);
             httpd_register_uri_handler(camera_httpd, &status_uri);
             httpd_register_uri_handler(camera_httpd, &capture_uri);
+            httpd_register_uri_handler(camera_httpd, &index_holo_html_uri);
         }
+        
         httpd_register_uri_handler(camera_httpd, &style_uri);
         httpd_register_uri_handler(camera_httpd, &favicon_16x16_uri);
         httpd_register_uri_handler(camera_httpd, &favicon_32x32_uri);
