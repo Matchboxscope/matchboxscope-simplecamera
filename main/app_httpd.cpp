@@ -49,7 +49,7 @@ extern void loadSpiffsToPrefs(fs::FS &fs);
 extern bool isTimelapseAnglerfish;
 
 camera_fb_t* convolution(camera_fb_t* input);
-bool saveImage(String filename, int lensValue=-1);
+bool saveImage(String filename, int pwmVal=-1);
 
 // External variables declared in the main .ino
 extern char myName[];
@@ -1474,7 +1474,7 @@ void startCameraServer(int hPort, int sPort)
     }
 }
 
-bool saveImage(String filename, int lensValue)
+bool saveImage(String filename, int pwmVal)
 {
     // Pause the stream for a moment
     IS_STREAM_PAUSE = true;
@@ -1486,9 +1486,9 @@ bool saveImage(String filename, int lensValue)
     }
 
     // set PWM value e.g. 
-    if (lensValue>-1){
+    if (pwmVal>-1){
         log_d("Setting PWM Value");
-        setPWM(lensValue);
+        setPWM(pwmVal);
     }
 
     bool res = false;

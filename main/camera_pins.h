@@ -15,6 +15,7 @@
 // AI Thinker
 // https://github.com/SeeedDocument/forum_doc/raw/master/reg/ESP32_CAM_V1.6.pdf
 //
+#define PWM_PIN 12
 #define LED_PIN 33 // Status led
 #define LAMP_PIN 4   // LED FloodLamp.
 #define PWDN_GPIO_NUM 32
