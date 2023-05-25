@@ -6,17 +6,12 @@
 // These are defined in the main .ino file
 extern void flashLED(int flashtime);
 extern int myRotation;   // Rotation
-extern int lampVal;      // The current Lamp value
-extern bool autoLamp;    // Automatic lamp mode
 extern int xclk;         // Camera module clock speed
 extern int minFrameTime; // Limits framerate
-extern bool isTimelapseAnglerfish;   // Anglerfish mode
 extern char *mssid;
 extern char *mpassword;
-extern uint32_t frameIndex;
-extern bool isStack;
-extern int timelapseInterval;
-extern bool isTimelapseGeneral;
+
+
 
 bool fileOpen = false;  // file-writing switch
 /*
@@ -126,8 +121,6 @@ void writePrefsToSSpiffs(fs::FS &fs)
 
   // save it to an arduinojson document
   DynamicJsonDocument jsonDoc = readPrefs(SPIFFS);
-  jsonDoc["lamp"] = lampVal;
-  jsonDoc["autolamp"] = autoLamp;
   jsonDoc["framesize"] = s->status.framesize;
   jsonDoc["quality"] = s->status.quality;
   jsonDoc["xclk"] = xclk;
@@ -155,13 +148,9 @@ void writePrefsToSSpiffs(fs::FS &fs)
   jsonDoc["dcw"] = s->status.dcw;
   jsonDoc["colorbar"] = s->status.colorbar;
   jsonDoc["rotate"] = String(myRotation);
-  jsonDoc["isTimelapseAnglerfish"] = isTimelapseAnglerfish;
   jsonDoc["mssid"] = mssid;
   jsonDoc["mpassword"] = mpassword;
-  jsonDoc["frameIndex"] = frameIndex ;
-  jsonDoc["isStack"] = isStack ;
-  jsonDoc["timelapseInterval"] = timelapseInterval;
-  jsonDoc["isTimelapseGeneral"] = isTimelapseGeneral;
+  
   
   // FIXME: ADD ALL THE values from the json document to variabels!
   writeJsonToSSpiffs(jsonDoc, SPIFFS);
@@ -287,21 +276,12 @@ void loadSpiffsToPrefs(fs::FS &fs)
     // Get sensor reference
     sensor_t *s = esp_camera_sensor_get();
 
-    // Process local settings
-    if (lampVal >= 0)
-    {
-      int lampValPref = doc["lamp"].as<int>();
-      if (lampValPref >= 0)
-        lampVal = lampValPref;
-    }
     minFrameTime = doc["min_frame_time"].as<int>();
-    autoLamp = doc["autolamp"].as<bool>();
     int xclkPref = doc["xclk"].as<int>();
     if (xclkPref >= 2)
       xclk = xclkPref;
     myRotation = doc["rotate"].as<int>();
 
-    isStack = doc["isStack"];
 
     // Process camera settings
     s->set_framesize(s, (framesize_t)doc["framesize"].as<int>());
@@ -340,25 +320,6 @@ void loadSpiffsToPrefs(fs::FS &fs)
 }
 
 
-
-static const char isTimelapseGeneralKey[] = "isTimelapseGeneral";
-bool getIsTimelapseGeneral(fs::FS &fs)
-{
-  //log_d("getIsTimelapseGeneral");
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  if (mConfig.containsKey("isTimelapseGeneralKey"))
-    return mConfig["isTimelapseGeneralKey"];
-  else
-    return false;
-}
-
-void setIsTimelapseGeneral(fs::FS &fs, bool isTimelapseGeneral)
-{
-  log_d("setIsTimelapseGeneral");
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  mConfig["isTimelapseGeneralKey"] = isTimelapseGeneral;
-  writeJsonToSSpiffs(mConfig, SPIFFS);
-}
 
 
 
@@ -466,41 +427,8 @@ void setCompiledDate(fs::FS &fs)
 
 /* Important settings should go to the preferences - sometimes, if we 
 write to SPIFFS and the file gets corrupted or empty, we will loose these settings*/
-
-
-static const char isAnglerfishModeKey[] = "anglerfish";
-static const char groupName[] = "matchbox";
-
-void setIsTimelapseAnglerfish(bool value) {
-  // Open preferences with a namespace/key pair
-  // it seems this survives a corruption of the SPIFFS!
-  Preferences preferences;
-  isTimelapseAnglerfish = value;
-  preferences.begin(groupName, false);
-
-  // Save the boolean value
-  preferences.putBool(isAnglerfishModeKey, value);
-
-  // Close the preferences
-  preferences.end();
-}
-
-bool getIsTimelapseAnglerfish(){
-  // Open preferences with a namespace/key pair
-  Preferences preferences;
-  preferences.begin(groupName, false);
-
-  // Load the boolean value
-  bool value = preferences.getBool(isAnglerfishModeKey, false);
-
-  // Close the preferences
-  preferences.end();
-
-  return value;
-}
-
 static const char dateKey[] = "date";
-
+static const char groupName[] = "esp32cam";
 bool isFirstBoot() {
   // get compiled date/time
   static const char compiled_date[] PROGMEM = __DATE__ " " __TIME__;

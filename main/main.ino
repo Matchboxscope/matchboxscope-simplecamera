@@ -17,7 +17,7 @@
 // camera configuration
 #define CAM_NAME "Omniscope"
 #define MDNS_NAME "Omniscope"
-
+char default_index[] = "full";
 // Primary config, or defaults.
 struct station
 {

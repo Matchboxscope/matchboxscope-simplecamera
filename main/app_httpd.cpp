@@ -29,7 +29,6 @@
 #include <SPIFFS.h>
 #include <FS.h>
 
-
 #include "index_ov2640.h"
 #include "index_ov3660.h"
 #include "index_other.h"
@@ -39,19 +38,17 @@
 #include "logo.h"
 #include "storage.h"
 
-
 // Functions from the main .ino
 extern void flashLED(int flashtime);
 extern void loadSpiffsToPrefs(fs::FS &fs);
-extern bool isTimelapseAnglerfish;
 
-camera_fb_t* convolution(camera_fb_t* input);
+
+camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename);
 
 // External variables declared in the main .ino
 extern char myName[];
 extern char myVer[];
-extern char baseVersion[];
 extern IPAddress ip;
 extern IPAddress net;
 extern IPAddress gw;
@@ -68,20 +65,14 @@ extern int myRotation;
 extern int minFrameTime;
 extern bool filesystem;
 extern String critERR;
-extern int sketchSize;
-extern int sketchSpace;
-extern String sketchMD5;
-extern bool otaEnabled;
-extern char otaPassword[];
 extern unsigned long xclk;
 extern int sensorPID;
-extern int sdInitialized;
-extern bool isTimelapseGeneral;
-extern bool isStack;
+
+
 
 bool IS_STREAM_PAUSE = false;
 
-extern int timelapseInterval;
+
 extern bool sendToGithubFlag;
 typedef struct
 {
@@ -101,92 +92,10 @@ httpd_handle_t camera_httpd = NULL;
 bool streamKill;
 
 
-void serialDump()
+esp_err_t bitmap_handler(httpd_req_t *req)
 {
-    Serial.println();
-    // Module
-    Serial.printf("Name: %s\r\n", myName);
-    Serial.printf("Firmware: %s (base: %s)\r\n", myVer, baseVersion);
-    float sketchPct = 100 * sketchSize / sketchSpace;
-    Serial.printf("Sketch Size: %i (total: %i, %.1f%% used)\r\n", sketchSize, sketchSpace, sketchPct);
-    Serial.printf("MD5: %s\r\n", sketchMD5.c_str());
-    Serial.printf("ESP sdk: %s\r\n", ESP.getSdkVersion());
-    if (otaEnabled)
-    {
-        if (strlen(otaPassword) != 0)
-        {
-            Serial.printf("OTA: Enabled, Password: %s\n\r", otaPassword);
-        }
-        else
-        {
-            Serial.printf("OTA: Enabled, No Password! (insecure)\n\r");
-        }
-    }
-    else
-    {
-        Serial.printf("OTA: Disabled\n\r");
-    }
-        Serial.printf("WiFi Mode: Client\r\n");
-        String ssidName = WiFi.SSID();
-        Serial.printf("WiFi Ssid: %s\r\n", ssidName.c_str());
-        Serial.printf("WiFi Rssi: %i\r\n", WiFi.RSSI());
-        String bssid = WiFi.BSSIDstr();
-        Serial.printf("WiFi BSSID: %s\r\n", bssid.c_str());
-    Serial.printf("WiFi IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
-    if (!is_accesspoint)
-    {
-        Serial.printf("WiFi Netmask: %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
-        Serial.printf("WiFi Gateway: %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
-    }
-    Serial.printf("WiFi Http port: %i, Stream port: %i\r\n", httpPort, streamPort);
-    byte mac[6];
-    WiFi.macAddress(mac);
-    Serial.printf("WiFi MAC: %02X:%02X:%02X:%02X:%02X:%02X\r\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    // System
-    int64_t sec = esp_timer_get_time() / 1000000;
-    int64_t upDays = int64_t(floor(sec / 86400));
-    int upHours = int64_t(floor(sec / 3600)) % 24;
-    int upMin = int64_t(floor(sec / 60)) % 60;
-    int upSec = sec % 60;
-    Serial.printf("System up: %" PRId64 ":%02i:%02i:%02i (d:h:m:s)\r\n", upDays, upHours, upMin, upSec);
-    Serial.printf("Active streams: %i, Previous streams: %lu, Images captured: %lu\r\n", streamCount, streamsServed, imagesServed);
-    Serial.printf("CPU Freq: %i MHz, Xclk Freq: %i MHz\r\n", ESP.getCpuFreqMHz(), xclk);
-    Serial.printf("Heap: %i, free: %i, min free: %i, max block: %i\r\n", ESP.getHeapSize(), ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
-    if (psramFound())
-    {
-        Serial.printf("Psram: %i, free: %i, min free: %i, max block: %i\r\n", ESP.getPsramSize(), ESP.getFreePsram(), ESP.getMinFreePsram(), ESP.getMaxAllocPsram());
-    }
-    else
-    {
-        Serial.printf("Psram: Not found; please check your board configuration.\r\n");
-        Serial.printf("- High resolution/quality settings will show incomplete frames to low memory.\r\n");
-    }
-    // Filesystems
-    if (filesystem && (SPIFFS.totalBytes() > 0))
-    {
-        Serial.printf("Spiffs: %i, used: %i\r\n", SPIFFS.totalBytes(), SPIFFS.usedBytes());
-    }
-    else
-    {
-        Serial.printf("Spiffs: No filesystem found, please check your board configuration.\r\n");
-        Serial.printf("- Saving and restoring camera settings will not function without this.\r\n");
-    }
-    Serial.println("Preferences file: ");
-    printPrefs(SPIFFS);
-    if (critERR.length() > 0)
-    {
-        Serial.printf("\r\n\r\nAn error or halt has occurred with Camera Hardware, see previous messages.\r\n");
-        Serial.printf("A reboot is required to recover from this.\r\nError message: (html)\r\n %s\r\n\r\n", critERR.c_str());
-    }
-    Serial.println();
-    return;
-}
-
-
-esp_err_t bitmap_handler(httpd_req_t *req) {
     camera_fb_t *fb = NULL;
     esp_err_t res = ESP_OK;
-
 
     camera_config_t config;
     config.pixel_format = PIXFORMAT_RAW;
@@ -195,7 +104,8 @@ esp_err_t bitmap_handler(httpd_req_t *req) {
     sensor->pixformat = PIXFORMAT_RAW;
 
     fb = esp_camera_fb_get();
-    if (!fb) {
+    if (!fb)
+    {
         Serial.println("CAPTURE: failed to acquire frame");
         httpd_resp_send_500(req);
         return ESP_FAIL;
@@ -206,10 +116,13 @@ esp_err_t bitmap_handler(httpd_req_t *req) {
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
     size_t fb_len = 0;
-    if (fb->format == PIXFORMAT_RGB565) {
+    if (fb->format == PIXFORMAT_RGB565)
+    {
         fb_len = fb->len;
         res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
-    } else {
+    }
+    else
+    {
         res = ESP_FAIL;
         Serial.println("Capture Error: Non-RGB565 image returned by camera module");
     }
@@ -217,13 +130,10 @@ esp_err_t bitmap_handler(httpd_req_t *req) {
     esp_camera_fb_return(fb);
     fb = NULL;
 
-
-    
     sensor->pixformat = PIXFORMAT_JPEG;
 
     return res;
 }
-
 
 static esp_err_t capture_handler(httpd_req_t *req)
 {
@@ -243,7 +153,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
         return ESP_FAIL;
     }
     log_d("Acquire second frame");
-    //camera_fb_t* fb = convolution(fb_);
+    // camera_fb_t* fb = convolution(fb_);
 
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
@@ -261,7 +171,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
         Serial.println("Capture Error: Non-JPEG image returned by camera module");
     }
     esp_camera_fb_return(fb);
-    //esp_camera_fb_return(fb_);
+    // esp_camera_fb_return(fb_);
     fb = NULL;
 
     // save to SD card if existent
@@ -275,7 +185,6 @@ static esp_err_t capture_handler(httpd_req_t *req)
 
     return res;
 }
-
 
 bool IS_STREAMING = false;
 
@@ -316,13 +225,13 @@ static esp_err_t stream_handler(httpd_req_t *req)
         res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
     }
 
-    
     while (true)
     {
 
         IS_STREAMING = true;
         // in case we need to pause the stream since we save the images?
-        while (IS_STREAM_PAUSE){
+        while (IS_STREAM_PAUSE)
+        {
             delay(10);
             IS_STREAMING = false;
         }
@@ -351,9 +260,10 @@ static esp_err_t stream_handler(httpd_req_t *req)
             size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, _jpg_buf_len);
             res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
         }
-        else{
+        else
+        {
             log_d("STREAM: corrupted frame");
-            //ESP.restart();
+            // ESP.restart();
         }
         if (res == ESP_OK)
         {
@@ -429,7 +339,6 @@ static esp_err_t stream_handler_XIAO(httpd_req_t *req)
     httpd_resp_set_hdr(req, "X-Framerate", "60");
 
     isStreaming = true;
-    
 
     while (true)
     {
@@ -444,22 +353,22 @@ static esp_err_t stream_handler_XIAO(httpd_req_t *req)
         {
             _timestamp.tv_sec = fb->timestamp.tv_sec;
             _timestamp.tv_usec = fb->timestamp.tv_usec;
-                if (fb->format != PIXFORMAT_JPEG)
+            if (fb->format != PIXFORMAT_JPEG)
+            {
+                bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
+                esp_camera_fb_return(fb);
+                fb = NULL;
+                if (!jpeg_converted)
                 {
-                    bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
-                    esp_camera_fb_return(fb);
-                    fb = NULL;
-                    if (!jpeg_converted)
-                    {
-                        log_e("JPEG compression failed");
-                        res = ESP_FAIL;
-                    }
+                    log_e("JPEG compression failed");
+                    res = ESP_FAIL;
                 }
-                else
-                {
-                    _jpg_buf_len = fb->len;
-                    _jpg_buf = fb->buf;
-                }
+            }
+            else
+            {
+                _jpg_buf_len = fb->len;
+                _jpg_buf = fb->buf;
+            }
         }
         if (res == ESP_OK)
         {
@@ -494,7 +403,6 @@ static esp_err_t stream_handler_XIAO(httpd_req_t *req)
 
         int64_t frame_time = fr_end - last_frame;
         frame_time /= 1000;
-        
     }
 
     isStreaming = false;
@@ -608,28 +516,18 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         res = s->set_wpc(s, val);
     else if (!strcmp(variable, "raw_gma"))
         res = s->set_raw_gma(s, val);
-    else if (!strcmp(variable, "stack")){
-        Serial.print("Changing stack is enable to: ");
-        Serial.println(val);
-        setAcquireStack(SPIFFS, val);
-        isStack = val;
-    }
-    else if (!strcmp(variable, "isTimelapse")){
-        Serial.print("Changing timelapse is enable to: ");
-        Serial.println(val);
-        isTimelapseGeneral = val;
-        setIsTimelapseGeneral(SPIFFS, val);
-    }
-    else if (!strcmp(variable, "ssid")){
+    else if (!strcmp(variable, "ssid"))
+    {
         Serial.print("Changing SSID to: ");
         Serial.println(value);
         setWifiSSID(SPIFFS, value);
     }
-    else if (!strcmp(variable, "password")){
+    else if (!strcmp(variable, "password"))
+    {
         Serial.print("Changing password to: ");
         Serial.println(value);
         setWifiPW(SPIFFS, value);
-    }    
+    }
     else if (!strcmp(variable, "lenc"))
         res = s->set_lenc(s, val);
     else if (!strcmp(variable, "special_effect"))
@@ -643,20 +541,15 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     else if (!strcmp(variable, "min_frame_time"))
         minFrameTime = val;
 
-    else if (!strcmp(variable, "timelapseInterval"))
-    {
-        Serial.print("Changing timelapse interval to: ");
-        Serial.println(val);
-        timelapseInterval = val;
-        setTimelapseInterval(SPIFFS, timelapseInterval);
-    }
     else if (!strcmp(variable, "save_prefs"))
     {
-        if (filesystem){
+        if (filesystem)
+        {
             writePrefsToSSpiffs(SPIFFS);
             printPrefs(SPIFFS);
         }
-        else{
+        else
+        {
             log_d("No filesystem, not saving prefs");
         }
     }
@@ -693,14 +586,13 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     return httpd_resp_send(req, NULL, 0);
 }
 
-
-static esp_err_t mac_handler(httpd_req_t *req){
-        uint8_t mac[6];
+static esp_err_t mac_handler(httpd_req_t *req)
+{
+    uint8_t mac[6];
     WiFi.macAddress(mac);
     // Create the filename string
     char macaddress[32];
     sprintf(macaddress, "%02X%02X%02X%02X%02X%02X.jpg", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    
 
     // Construct a random URL
     static char json_response[1024];
@@ -708,7 +600,7 @@ static esp_err_t mac_handler(httpd_req_t *req){
     *p++ = '{';
     // Do not get attempt to get sensor when in error; causes a panic..
     p += sprintf(p, "\"mac\":%d,", macaddress);
-        
+
     *p++ = '}';
     *p++ = 0;
     httpd_resp_set_type(req, "application/json");
@@ -718,7 +610,6 @@ static esp_err_t mac_handler(httpd_req_t *req){
 
 static esp_err_t status_handler(httpd_req_t *req)
 {
-
 
     static char json_response[1024];
     char *p = json_response;
@@ -761,9 +652,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"code_ver\":\"%s\",", myVer);
         p += sprintf(p, "\"rotate\":\"%d\",", myRotation);
         p += sprintf(p, "\"stream_url\":\"%s\",", streamURL);
-        p += sprintf(p, "\"sdcard\":%d,", sdInitialized);
-        //p += sprintf(p, "\"compiled_date\":%llu,", compileDate);
-        p += sprintf(p, "\"isStack\":\"%u\",", isStack);
+        // p += sprintf(p, "\"compiled_date\":%llu,", compileDate);
         p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
     }
     *p++ = '}';
@@ -820,7 +709,7 @@ static esp_err_t dump_handler(httpd_req_t *req)
 {
     flashLED(75);
     Serial.println("\r\nDump requested via Web");
-    serialDump();
+    
     static char dumpOut[2000] = "";
     char *d = dumpOut;
     // Header
@@ -840,19 +729,15 @@ static esp_err_t dump_handler(httpd_req_t *req)
     d += sprintf(d, "<h1>ESP32 Cam Webserver</h1>\n");
     // Module
     d += sprintf(d, "Name: %s<br>\n", myName);
-    d += sprintf(d, "Firmware: %s (base: %s)<br>\n", myVer, baseVersion);
-    float sketchPct = 100 * sketchSize / sketchSpace;
-    d += sprintf(d, "Sketch Size: %i (total: %i, %.1f%% used)<br>\n", sketchSize, sketchSpace, sketchPct);
-    d += sprintf(d, "MD5: %s<br>\n", sketchMD5.c_str());
     d += sprintf(d, "ESP sdk: %s<br>\n", ESP.getSdkVersion());
     // Network
     d += sprintf(d, "<h2>WiFi</h2>\n");
-        d += sprintf(d, "Mode: Client<br>\n");
-        String ssidName = WiFi.SSID();
-        d += sprintf(d, "SSID: %s<br>\n", ssidName.c_str());
-        d += sprintf(d, "Rssi: %i<br>\n", WiFi.RSSI());
-        String bssid = WiFi.BSSIDstr();
-        d += sprintf(d, "BSSID: %s<br>\n", bssid.c_str());
+    d += sprintf(d, "Mode: Client<br>\n");
+    String ssidName = WiFi.SSID();
+    d += sprintf(d, "SSID: %s<br>\n", ssidName.c_str());
+    d += sprintf(d, "Rssi: %i<br>\n", WiFi.RSSI());
+    String bssid = WiFi.BSSIDstr();
+    d += sprintf(d, "BSSID: %s<br>\n", bssid.c_str());
     d += sprintf(d, "IP address: %d.%d.%d.%d<br>\n", ip[0], ip[1], ip[2], ip[3]);
     if (!is_accesspoint)
     {
@@ -969,61 +854,15 @@ esp_err_t client_event_get_handler(esp_http_client_event_handle_t evt)
     return ESP_OK;
 }
 
-
 void saveCapturedImageiNaturalist()
 {
     /* Write a function that uploads an image using the iNaturalist REST API
-    */
+     */
     Serial.println("Performing Saving Capture for iNaturalist in Background");
     // choose smaller pixel number
-        sensor_t *s = esp_camera_sensor_get();
+    sensor_t *s = esp_camera_sensor_get();
     s->set_framesize(s, FRAMESIZE_VGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA]
-    
-
 }
-
-static esp_err_t anglerfish_handler(httpd_req_t *req)
-{
-
-    Serial.println("Entering the Anglerfish mode");
-    for(int iFlash = 0; iFlash<10; iFlash++) flashLED(75);
-    Serial.println("Going into deepsleep mode");
-
-    if(sdInitialized){
-    // save all settings from gui
-    writePrefsToSSpiffs(SPIFFS);
-  
-    // this will set the anglerfish into a periodic deep-sleep awake timelapse
-    setIsTimelapseAnglerfish(true);
-    getIsTimelapseAnglerfish();
-    static char json_response[1024];
-    char *p = json_response;
-    *p++ = '{';
-    p += sprintf(p, "You have enabled long-time timelpase - remove the SD card to wake up from deepsleep mode #Schneewittchen...");
-    *p++ = '}';
-    *p++ = 0;
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_send(req, json_response, strlen(json_response));
-
-    SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
-    delay(2000);
-    ESP.restart();
-    }
-    else{
-    static char json_response[1024];
-    char *p = json_response;
-    *p++ = '{';
-    p += sprintf(p, "SD card not initialized - please insert SD card and restart");
-    *p++ = '}';
-    *p++ = 0;
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_send(req, json_response, strlen(json_response));
-    }   
-    return 0;
-}
-
 
 static esp_err_t index_handler(httpd_req_t *req)
 {
@@ -1068,7 +907,6 @@ static esp_err_t index_handler(httpd_req_t *req)
     {
         // no target specified; default.
         strcpy(view, default_index);
-
     }
 
     if (strncmp(view, "simple", sizeof(view)) == 0)
@@ -1124,7 +962,6 @@ static esp_err_t holo_handler(httpd_req_t *req)
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Content-Encoding", "identity");
     return httpd_resp_send(req, (const char *)index_holo_html, index_holo_html_len);
-
 }
 
 void startCameraServer(int hPort, int sPort)
@@ -1149,7 +986,7 @@ void startCameraServer(int hPort, int sPort)
         .user_ctx = NULL};
     httpd_uri_t mac_uri = {
         .uri = "/mac",
-        .method = HTTP_GET, 
+        .method = HTTP_GET,
         .handler = mac_handler,
         .user_ctx = NULL};
     httpd_uri_t cmd_uri = {
@@ -1227,11 +1064,6 @@ void startCameraServer(int hPort, int sPort)
         .method = HTTP_GET,
         .handler = error_handler,
         .user_ctx = NULL};
-    httpd_uri_t anglerfish_uri = {
-        .uri = "/anglerfishmode",
-        .method = HTTP_GET,
-        .handler = anglerfish_handler,
-        .user_ctx = NULL};
 
     // Request Handlers; config.max_uri_handlers (above) must be >= the number of handlers
     config.server_port = hPort;
@@ -1251,7 +1083,7 @@ void startCameraServer(int hPort, int sPort)
             httpd_register_uri_handler(camera_httpd, &capture_uri);
             httpd_register_uri_handler(camera_httpd, &index_holo_html_uri);
         }
-        
+
         httpd_register_uri_handler(camera_httpd, &style_uri);
         httpd_register_uri_handler(camera_httpd, &favicon_16x16_uri);
         httpd_register_uri_handler(camera_httpd, &favicon_32x32_uri);
@@ -1260,7 +1092,7 @@ void startCameraServer(int hPort, int sPort)
         httpd_register_uri_handler(camera_httpd, &dump_uri);
         httpd_register_uri_handler(camera_httpd, &stop_uri);
         httpd_register_uri_handler(camera_httpd, &mac_uri);
-        httpd_register_uri_handler(camera_httpd, &anglerfish_uri);
+        
         httpd_register_uri_handler(camera_httpd, &bitmap_uri);
     }
 
@@ -1299,76 +1131,13 @@ bool saveImage(String filename)
 
     bool res = false;
     // TODO: We need to stop the stream here!
-    if (sdInitialized)
-    { // Do not attempt to save anything to a non-existig SD card
-
-        camera_fb_t *fb = NULL;
-        
-        Serial.println("Capture Requested for SD card save");
-        flashLED(75); // little flash of status LED
-
-        int64_t fr_start = esp_timer_get_time();
-
-        // FIXME: Why is this necessary?  Without it, the first frame is always garbage, e.g shifted lines - JPEG artifact?.
-        for(int iDummyFrames=0; iDummyFrames<2; iDummyFrames++){
-            fb = esp_camera_fb_get();
-            esp_camera_fb_return(fb);
-        }
-        fb = esp_camera_fb_get();
-        if (!fb)
-        {
-            Serial.println("CAPTURE: failed to acquire frame");
-            res = false;
-            return res;
-        }
-
-        size_t fb_len = 0;
-        if (fb->format == PIXFORMAT_JPEG)
-        {
-            fb_len = fb->len;
-            res = true;
-        }
-        else
-        {
-            res = false;
-            Serial.println("Capture Error: Non-JPEG image returned by camera module");
-        }
-
-        int64_t fr_end = esp_timer_get_time();
-
-        // Save image to disk
-        fs::FS &fs = SD_MMC;
-        String extension = ".jpg";
-        File imgFile = fs.open((filename+extension).c_str(), FILE_WRITE);
-        if (!imgFile)
-        {
-            Serial.println("Failed to open file in writing mode");
-            return false;
-        }
-        else
-        {
-            imgFile.write(fb->buf, fb->len);
-            Serial.println("Saved " + filename);
-        }
-        imgFile.close();
-
-        // reset frame buffer
-        esp_camera_fb_return(fb);
-        fb = NULL;
-
-    }
-    else
-    {
-        res = false;
-    }
+    res = false;
 
     // Resume the stream
     IS_STREAM_PAUSE = false;
 
     return res;
 }
-
-
 
 /*
 
@@ -1377,16 +1146,17 @@ Image Processing
 
 */
 
-
-camera_fb_t* convolution(camera_fb_t* input) {
-  // Create a new dummy frame buffer for the result
+camera_fb_t *convolution(camera_fb_t *input)
+{
+    // Create a new dummy frame buffer for the result
 
     int FRAME_WIDTH = input->width;
     int FRAME_HEIGHT = input->height;
     size_t frame_size = FRAME_WIDTH * FRAME_HEIGHT * 3; // Assuming pixel format is PIXFORMAT_RGB565
 
-    camera_fb_t* frame_buffer = (camera_fb_t*)malloc(sizeof(camera_fb_t));
-    if (!frame_buffer) {
+    camera_fb_t *frame_buffer = (camera_fb_t *)malloc(sizeof(camera_fb_t));
+    if (!frame_buffer)
+    {
         log_e("Failed to allocate frame buffer");
         return NULL;
     }
@@ -1394,53 +1164,55 @@ camera_fb_t* convolution(camera_fb_t* input) {
     frame_buffer->width = FRAME_WIDTH;
     frame_buffer->height = FRAME_HEIGHT;
     frame_buffer->len = frame_size;
-    frame_buffer->buf = (uint8_t*)malloc(frame_size);
-    if (!frame_buffer->buf) {
+    frame_buffer->buf = (uint8_t *)malloc(frame_size);
+    if (!frame_buffer->buf)
+    {
         log_e("Failed to allocate frame buffer memory");
         free(frame_buffer);
         return NULL;
     }
 
+    // Set the result frame buffer parameters
+    frame_buffer->width = input->width;
+    frame_buffer->height = input->height;
+    frame_buffer->len = input->len;
+    frame_buffer->format = input->format;
+    frame_buffer->buf = new uint8_t[frame_buffer->len];
 
-  // Set the result frame buffer parameters
-  frame_buffer->width = input->width;
-  frame_buffer->height = input->height;
-  frame_buffer->len = input->len;
-  frame_buffer->format = input->format;
-  frame_buffer->buf = new uint8_t[frame_buffer->len];
-
-  // Perform convolution on each pixel of the input frame buffer
+    // Perform convolution on each pixel of the input frame buffer
     int kernelSize = 7;
     float kernel[kernelSize][kernelSize] = {
-    {0.0009, 0.0060, 0.0217, 0.0447, 0.0217, 0.0060, 0.0009},
-    {0.0060, 0.0401, 0.1466, 0.3040, 0.1466, 0.0401, 0.0060},
-    {0.0217, 0.1466, 0.5352, 1.1065, 0.5352, 0.1466, 0.0217},
-    {0.0447, 0.3040, 1.1065, 2.2945, 1.1065, 0.3040, 0.0447},
-    {0.0217, 0.1466, 0.5352, 1.1065, 0.5352, 0.1466, 0.0217},
-    {0.0060, 0.0401, 0.1466, 0.3040, 0.1466, 0.0401, 0.0060},
-    {0.0009, 0.0060, 0.0217, 0.0447, 0.0217, 0.0060, 0.0009}
-    };
+        {0.0009, 0.0060, 0.0217, 0.0447, 0.0217, 0.0060, 0.0009},
+        {0.0060, 0.0401, 0.1466, 0.3040, 0.1466, 0.0401, 0.0060},
+        {0.0217, 0.1466, 0.5352, 1.1065, 0.5352, 0.1466, 0.0217},
+        {0.0447, 0.3040, 1.1065, 2.2945, 1.1065, 0.3040, 0.0447},
+        {0.0217, 0.1466, 0.5352, 1.1065, 0.5352, 0.1466, 0.0217},
+        {0.0060, 0.0401, 0.1466, 0.3040, 0.1466, 0.0401, 0.0060},
+        {0.0009, 0.0060, 0.0217, 0.0447, 0.0217, 0.0060, 0.0009}};
 
+    for (int y = kernelSize / 2; y < input->height - kernelSize / 2; y++)
+    {
+        for (int x = kernelSize / 2; x < input->width - kernelSize / 2; x++)
+        {
+            float sum = 0;
 
-  for (int y = kernelSize / 2; y < input->height - kernelSize / 2; y++) {
-    for (int x = kernelSize / 2; x < input->width - kernelSize / 2; x++) {
-      float sum = 0;
+            // Apply the convolution kernel to the pixel neighborhood
+            for (int ky = 0; ky < kernelSize; ky++)
+            {
+                for (int kx = 0; kx < kernelSize; kx++)
+                {
+                    int pixel = input->buf[(y + ky - kernelSize / 2) * input->width + (x + kx - kernelSize / 2)];
+                    sum += kernel[ky][kx] * pixel;
+                }
+            }
 
-      // Apply the convolution kernel to the pixel neighborhood
-      for (int ky = 0; ky < kernelSize; ky++) {
-        for (int kx = 0; kx < kernelSize; kx++) {
-          int pixel = input->buf[(y + ky - kernelSize / 2) * input->width + (x + kx - kernelSize / 2)];
-          sum += kernel[ky][kx] * pixel;
+            // Ensure the pixel value is within the valid range
+            sum = min(max(sum, (float)0.), (float)255.);
+
+            // Set the convolved pixel value in the result frame buffer
+            frame_buffer->buf[y * input->width + x] = sum;
         }
-      }
-
-      // Ensure the pixel value is within the valid range
-      sum = min(max(sum, (float)0.), (float)255.);
-
-      // Set the convolved pixel value in the result frame buffer
-      frame_buffer->buf[y * input->width + x] = sum;
     }
-  }
 
-  return frame_buffer;
+    return frame_buffer;
 }
