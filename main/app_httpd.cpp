@@ -72,7 +72,7 @@ extern int sensorPID;
 
 bool IS_STREAM_PAUSE = false;
 
-
+extern bool get_mean_intensity;
 extern bool sendToGithubFlag;
 typedef struct
 {
@@ -145,6 +145,27 @@ static esp_err_t capture_handler(httpd_req_t *req)
 
     int64_t fr_start = esp_timer_get_time();
 
+    // globally change frame resolution to lower the bandwidth
+    sensor_t *s = esp_camera_sensor_get();
+    s->set_framesize(s, FRAMESIZE_UXGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA]
+
+
+     // get mean intensities
+    for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
+    {
+        // FIXME: Look at the buffer for the camera => flush vs. return
+        log_d("Capturing dummy frame %i", iDummyFrame);
+        fb = esp_camera_fb_get();
+        if (!fb)
+            log_e("Camera frame error", false);
+        esp_camera_fb_return(fb);
+
+        int mean_intensity = get_mean_intensity(fb);
+
+        Serial.print("Mean intensity: ");
+        Serial.println(mean_intensity);
+    }
+    
     fb = esp_camera_fb_get();
     if (!fb)
     {
@@ -195,6 +216,10 @@ static esp_err_t stream_handler(httpd_req_t *req)
     size_t _jpg_buf_len = 0;
     uint8_t *_jpg_buf = NULL;
     char *part_buf[64];
+
+    // globally change frame resolution to lower the bandwidth
+    sensor_t *s = esp_camera_sensor_get();
+    s->set_framesize(s, FRAMESIZE_QVGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA]
 
     streamKill = false;
 
@@ -1216,3 +1241,6 @@ camera_fb_t *convolution(camera_fb_t *input)
 
     return frame_buffer;
 }
+
+
+

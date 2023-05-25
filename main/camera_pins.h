@@ -1,7 +1,7 @@
 //
 // ESP XIAO
 //
-#define LED_PIN LED_BUILTIN // Status led
+#define LED_PIN -1 // Status led
 #define LAMP_PIN -1   // LED FloodLamp.
 #define PWM_PIN -1
 #define PWDN_GPIO_NUM -1

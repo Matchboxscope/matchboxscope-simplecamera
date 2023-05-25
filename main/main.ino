@@ -13,6 +13,7 @@
 #include "esp_bt.h"
 #include "esp_gap_ble_api.h"
 #include "improv.h"
+#include "PubSubClient.h"
 
 // camera configuration
 #define CAM_NAME "Omniscope"
@@ -26,11 +27,21 @@ struct station
     const bool dhcp;
 }; // do no edit
 
+// unique id per setup
+uint32_t uniqueID = 0;
+
 // Pin Mappings
 #include "camera_pins.h"
 
 // Camera config structure
 camera_config_t config;
+
+// MQTT stuff
+const char* mqtt_server = "YOUR_MQTT_BROKER_IP_ADDRESS";
+PubSubClient client(espClient);
+long lastMsg = 0;
+char msg[50];
+int value = 0;
 
 // Internal filesystem (SPIFFS)
 // used for non-volatile camera settings
@@ -549,12 +560,39 @@ void setup()
             });
     ArduinoOTA.begin();
     
+
+    // get the unique ID of the device
+      // Retrieve the MAC address
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+
+  // Convert the MAC address to a 5-digit integer
+  uniqueID = macToID(mac);
+
+  Serial.print("Unique ID: ");
+  Serial.println(uniqueID);
+
+  // set MQTT callback
+    client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
+
     
 }
 
 int WIFI_WATCHDOG = 15000;
+int T_SEND_MQTT_ID = 5000; // every 5s 
+uint32_t T_last_mqtt = millis();
 void loop()
 {
+    // send MQTT singal every T_SEND_MQTT_ID-seconds
+    if(millis() - T_last_mqtt > T_SEND_MQTT_ID){
+        T_last_mqtt = millis();
+        // publish the unique ID and IP Address in one string 
+        char message[50];
+        sprintf(message, "%d.%d.%d.%d:%d", ip[0], ip[1], ip[2], ip[3], httpPort);
+        client.publish("IP/ID", String(uniqueID)+message);
+
+    }
     // client mode can fail; so reconnect as appropriate
     static bool warned = false;
     if (WiFi.status() == WL_CONNECTED)
@@ -586,4 +624,41 @@ void loop()
         }
         initWifi();
     }
+}
+
+// Function to convert MAC address to a 5-digit integer
+unsigned int macToID(uint8_t mac[]) {
+  unsigned int id = ((mac[0] << 8) | mac[1]) ^ ((mac[2] << 8) | mac[3]) ^ (mac[4] << 8);
+  id %= 90000;  // Limit the ID to 5 digits
+  id += 10000;  // Ensure a 5-digit ID
+  return id;
+}
+
+void callback(char* topic, byte* message, unsigned int length) {
+  Serial.print("Message arrived on topic: ");
+  Serial.print(topic);
+  Serial.print(". Message: ");
+  String messageTemp;
+  
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)message[i]);
+    messageTemp += (char)message[i];
+  }
+  Serial.println();
+
+  // Feel free to add more if statements to control more GPIOs with MQTT
+
+  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off". 
+  // Changes the output state according to the message
+  if (String(topic) == "esp32/output") {
+    Serial.print("Changing output to ");
+    if(messageTemp == "on"){
+      Serial.println("on");
+      digitalWrite(ledPin, HIGH);
+    }
+    else if(messageTemp == "off"){
+      Serial.println("off");
+      digitalWrite(ledPin, LOW);
+    }
+  }
 }
