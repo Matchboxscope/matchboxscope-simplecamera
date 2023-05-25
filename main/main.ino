@@ -14,16 +14,9 @@
 #include "esp_gap_ble_api.h"
 #include "improv.h"
 
-#include "spinlock.h"
-
-#include "anglerfishcamsettings.h"
-
 // camera configuration
-#define CAM_NAME "Matchboxscope"
-#define MDNS_NAME "Matchboxscope"
-// camera module
-// #define CAMERA_MODEL_AI_THINKER
-// #define CAMERA_MODEL_XIAO
+#define CAM_NAME "Omniscope"
+#define MDNS_NAME "Omniscope"
 
 // Primary config, or defaults.
 struct station
@@ -32,9 +25,6 @@ struct station
     const char password[65];
     const bool dhcp;
 }; // do no edit
-
-// Upstream version string
-#include "version.h"
 
 // Pin Mappings
 #include "camera_pins.h"
@@ -55,11 +45,6 @@ uint8_t x_position = 0;
 int frameWidth = 0;  // Width of the image frame
 int frameHeight = 0; // Height of the image frame
 
-// Sketch Info
-int sketchSize;
-int sketchSpace;
-String sketchMD5;
-
 // Start with accesspoint mode disabled, wifi setup will activate it if
 // no known networks are found, and WIFI_AP_ENABLE has been defined
 
@@ -71,8 +56,6 @@ bool is_accesspoint = false;
 
 // Declare external function from app_httpd.cpp
 extern void startCameraServer(int hPort, int sPort);
-extern void serialDump();
-extern void saveCapturedImageGithub();
 
 bool onCommandCallback(improv::ImprovCommand cmd);
 void getAvailableWifiNetworks();
@@ -89,16 +72,8 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "Blynk"; // default values
-const char *mpassword = "12345678";
-
-#define WIFI_WATCHDOG 15000
-
-// Select between full and simple index as the default.
-char default_index[] = "full";
-
-// SD Card
-boolean sdInitialized = false;
+const char *mssid = "omniscope"; // default values
+const char *mpassword = "omniscope";
 
 // DNS server
 const byte DNS_PORT = 53;
@@ -127,80 +102,49 @@ unsigned long xclk = 8;
 
 // initial rotation of the camera image
 int myRotation = 0;
-bool isStack = false;
-bool isTimelapseAnglerfish = false;
-bool isTimelapseGeneral = false;
 
 // minimal frame duration in ms, effectively 1/maxFPS
 int minFrameTime = 0;
 
-// Timelapse
-int timelapseInterval = -1;
-static uint64_t t_old = millis();
-bool sendToGithubFlag = false;
-uint32_t frameIndex = 0;
-
-// Illumination LAMP and status LED
-int lampVal = 0;       // default to off
-bool autoLamp = false; // Automatic lamp (auto on while camera running)
-int pwmVal = 0;        // default no-value
-bool BUSY_SET_LED = false;
-
-int lampChannel = 7; // a free PWM channel (some channels used by camera)
-int pwmChannel = 5;
-const int pwmfreq = 50000;   // 50K pwm frequency
-const int pwmresolution = 9; // duty cycle bit range
-const int pwmMax = pow(2, pwmresolution) - 1;
-
 bool filesystem = true;
 
-bool otaEnabled = false;
-char otaPassword[] = "";
-
-const char *ntpServer = "";
-const long gmtOffset_sec = 0;
-const int daylightOffset_sec = 0;
-
-extern bool saveImage(String filename, int pwmVal);
+extern bool saveImage(String filename);
 // Critical error string; if set during init (camera hardware failure) it
 // will be returned for all http requests
 String critERR = "";
 
-// Serial input (debugging controls)
-void handleSerial()
+void initWifi()
 {
-    if (Serial.available())
-    {
-        uint8_t b = Serial.read();
+    /*
+     * WIFI-related settings
+     */
+    // TODO: Try to connect here if credentials are available
+    //  load SSID/PW from SPIFFS
+    String mssid_tmp = getWifiSSID(SPIFFS);
+    String mpassword_tmp = getWifiPW(SPIFFS);
 
-        if (parse_improv_serial_byte(x_position, b, x_buffer, onCommandCallback, onErrorCallback))
-        {
-            x_buffer[x_position++] = b;
-        }
-        else
-        {
-            x_position = 0;
-        }
+    // try to connect to available Network
+    log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
+    WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
+    WiFi.setSleep(false);
+    log_d("Initi Wifi works");
 
-        while (Serial.available())
-            Serial.read(); // chomp the buffer
-    }
-}
-
-bool connectWifi(std::string ssid, std::string password){
-    uint8_t count = 0;
-    WiFi.begin(ssid.c_str(), password.c_str());
+    int nTrialWifiConnect = 0;
+    int nTrialWifiConnectMax = 30;
+    int tWaitWifiConnect = 500;
     while (WiFi.status() != WL_CONNECTED)
     {
-        blink_led(500, 1);
-        if (count > MAX_ATTEMPTS_WIFI_CONNECTION)
+        log_d("Connecting to Wi-Fi...");
+        nTrialWifiConnect++;
+        delay(tWaitWifiConnect);
+
+        if (nTrialWifiConnect > nTrialWifiConnectMax)
         {
-            WiFi.disconnect();
-            return false;
+            WiFi.disconnect(); // (resets the WiFi scan)
+            WiFi.mode(WIFI_AP);
+            ESP.restart();
         }
-        count++;
     }
-    return true;
 }
 
 // Notification LED
@@ -219,171 +163,6 @@ void blink_led(int d, int times)
     {
         flashLED(d);
         delay(d);
-    }
-}
-
-// Lamp Control
-void setLamp(int newVal)
-{
-    if (newVal != -1 and !BUSY_SET_LED)
-    {
-        BUSY_SET_LED = true;
-        // Apply a logarithmic function to the scale.
-        int brightness = round((pow(2, (1 + (newVal * 0.02))) - 2) / 6 * pwmMax);
-        ledcWrite(lampChannel, brightness);
-        Serial.print("Lamp: ");
-        Serial.print(newVal);
-        Serial.print("%, pwm = ");
-        Serial.println(brightness);
-        BUSY_SET_LED = false;
-        delay(15); // settle time
-    }
-}
-
-// PWM Control
-void setPWM(int newVal)
-{
-    if (newVal != -1)
-    {
-        // Apply a logarithmic function to the scale.
-        int current = newVal;
-        ledcWrite(pwmChannel, current);
-        Serial.print("Current: ");
-        Serial.print(newVal);
-        Serial.print("%, pwm = ");
-        Serial.println(current);
-    }
-}
-
-void initWifi()
-{
-    /*
-     * WIFI-related settings
-     */
-    // TODO: Try to connect here if credentials are available
-    //  load SSID/PW from SPIFFS
-    String mssid_tmp = getWifiSSID(SPIFFS);
-    String mpassword_tmp = getWifiPW(SPIFFS);
-
-    int randomID = random(10);
-    String ssid = "Matchboxscope-" + String(randomID, HEX);
-
-    // if mssid_tmp is "" open access point
-    if (mssid_tmp == "")
-    {
-        // open Access Point with random ID
-        WiFi.disconnect(); // (resets the WiFi scan)
-        WiFi.mode(WIFI_AP);
-        WiFi.softAP(ssid.c_str(), "");
-        for (int iBlink = 0; iBlink < randomID; iBlink++)
-        {
-            setLamp(100);
-            delay(50);
-            setLamp(0);
-            delay(50);
-        }
-
-        // Print the SSID to the serial monitor
-        Serial.print("Access point SSID: ");
-        Serial.println(ssid);
-        is_accesspoint = true;
-    }
-    else
-    { // try to connect to available Network
-        log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
-        WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
-        WiFi.setSleep(false);
-        log_d("Initi Wifi works");
-
-        int nTrialWifiConnect = 0;
-        int nTrialWifiConnectMax = 30;
-        int tWaitWifiConnect = 500;
-        while (WiFi.status() != WL_CONNECTED)
-        {
-            log_d("Connecting to Wi-Fi...");
-            nTrialWifiConnect++;
-            delay(tWaitWifiConnect);
-
-            if (nTrialWifiConnect > nTrialWifiConnectMax)
-            {
-                WiFi.disconnect(); // (resets the WiFi scan)
-                WiFi.mode(WIFI_AP);
-
-                // open Access Point with random ID
-                WiFi.softAP(ssid.c_str(), "");
-                blink_led(100, randomID);
-
-                Serial.println("Failed to connect to Wi-Fi => Creating AP");
-                // Print the SSID to the serial monitor
-                Serial.print("Access point SSID: ");
-                Serial.println(ssid);
-                is_accesspoint = true;
-                break;
-            }
-        }
-    }
-}
-
-void setupOTA()
-{
-    // Set up OTA
-    if (otaEnabled)
-    {
-        // Start OTA once connected
-        Serial.println("Setting up OTA");
-        // Port defaults to 3232
-        // ArduinoOTA.setPort(3232);
-        // Hostname defaults to esp3232-[MAC]
-        ArduinoOTA.setHostname(mdnsName);
-        // No authentication by default
-        if (strlen(otaPassword) != 0)
-        {
-            ArduinoOTA.setPassword(otaPassword);
-            Serial.printf("OTA Password: %s\n\r", otaPassword);
-        }
-        else
-        {
-            Serial.printf("\r\nNo OTA password has been set! (insecure)\r\n\r\n");
-        }
-        ArduinoOTA
-            .onStart([]()
-                     {
-                String type;
-                if (ArduinoOTA.getCommand() == U_FLASH)
-                    type = "sketch";
-                else // U_SPIFFS
-                    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-                    type = "filesystem";
-                Serial.println("Start updating " + type);
-                // Stop the camera since OTA will crash the module if it is running.
-                // the unit will need rebooting to restart it, either by OTA on success, or manually by the user
-                Serial.println("Stopping Camera");
-                esp_err_t err = esp_camera_deinit();
-                critERR = "<h1>OTA Has been started</h1><hr><p>Camera has Halted!</p>";
-                critERR += "<p>Wait for OTA to finish and reboot, or <a href=\"control?var=reboot&val=0\" title=\"Reboot Now (may interrupt OTA)\">reboot manually</a> to recover</p>"; })
-            .onEnd([]()
-                   { Serial.println("\r\nEnd"); })
-            .onProgress([](unsigned int progress, unsigned int total)
-                        { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
-            .onError([](ota_error_t error)
-                     {
-                Serial.printf("Error[%u]: ", error);
-                if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-                else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-                else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-                else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-                else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
-        ArduinoOTA.begin();
-    }
-    else
-    {
-        Serial.println("OTA is disabled");
-
-        if (!MDNS.begin(mdnsName))
-        {
-            Serial.println("Error setting up MDNS responder!");
-        }
-        Serial.println("mDNS responder started");
     }
 }
 
@@ -620,33 +399,6 @@ bool StartCamera()
     return initSuccess;
 }
 
-void handleSerialTask(void *pvParameters)
-{
-    Serial.println("Creating task handleSerial");
-    // Serial.println("You can enter your wifi password and ssid via a json string e.g.{\"ssid\":\"SSID_NAME\",\"password\":\"SSID-PASSWORD\"}");
-    Serial.println("Navigate to https://matchboxscope.github.io/firmware/FLASH.html and enter the Wifi SSID/PW through the GUI");
-    while (true)
-    {
-        handleSerial();
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-    }
-}
-
-void saveCapturedImageGithubTask(void *pvParameters)
-{
-    Serial.println("Creating task saveCapturedImageGithubTask");
-    while (true)
-    {
-        if (sendToGithubFlag)
-        {
-            Serial.println("Sending to Github");
-            sendToGithubFlag = false;
-            saveCapturedImageGithub();
-        }
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-    }
-}
-
 int get_mean_intensity(camera_fb_t *fb)
 {
     uint8_t *pixels = fb->buf;
@@ -676,9 +428,6 @@ void setup()
 
     // propagate URLs to GUI
     calcURLs();
-
-    // setup OTA
-    setupOTA();
 
     // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
     if (!psramFound())
@@ -724,86 +473,13 @@ void setup()
     // declare LED PIN
     pinMode(LED_PIN, OUTPUT);
 
-    // check if we want to acquire a stack instead of a single slice
-    isStack = getAcquireStack(SPIFFS);
-
-    // only for Anglerfish if already focussed
-    isTimelapseAnglerfish = getIsTimelapseAnglerfish(); // set the global variable for the loop function
-
     // initialize SD card before LED!!
     // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
     // with a different pin mode.
     // 1-bit mode as suggested here:https://dr-mntn.net/2021/02/using-the-sd-card-in-1-bit-mode-on-the-esp32-cam-from-ai-thinker
 
-    if (!SD_MMC.begin("/sdcard", true))
-    { // FIXME: this sometimes leads to issues Unix vs. Windows formating - text encoding? Sometimes it copies to "sdcard" => Autoformating does this!!!
-        Serial.println("SD Card Mount Failed");
-        // FIXME: This should be indicated in the GUI
-        sdInitialized = false;
-        setIsTimelapseAnglerfish(false);
-        isTimelapseAnglerfish = false;
-        // Flash the LED to show SD card is not connected
-        blink_led(50, 20);
-    }
-    else
-    {
-        sdInitialized = true;
-        Serial.println("SD Card Mounted");
-
-        // Check for an SD card
-        uint8_t cardType = SD_MMC.cardType();
-        if (cardType == CARD_NONE)
-        {
-            Serial.println("No SD card attached");
-            sdInitialized = false;
-        }
-        else
-        {
-            Serial.println(cardType);
-        }
-    }
-
-    // Start threads for background frame publishing and serial handling // FIXME: Is this really necessary?
-    if (!isTimelapseAnglerfish)
-    {
-        log_d("Starting saveCapturedImageGithubTask", "");
-        xTaskCreatePinnedToCore(
-            saveCapturedImageGithubTask,
-            "saveCapturedImageGithubTask",
-            10000,
-            NULL,
-            11,
-            NULL,
-            0);
-    }
-
     // loading previous settings
     imagesServed = getFrameIndex(SPIFFS);
-    timelapseInterval = getTimelapseInterval(SPIFFS);
-
-    // Initialise and set the lamp
-    ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
-    ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
-    log_d("LED pin: %d", LAMP_PIN);
-    if (autoLamp)
-        setLamp(0); // set default value
-    else
-        setLamp(lampVal);
-
-    // Initialise and set the PWM output
-    pinMode(PWM_PIN, OUTPUT);
-    log_d("PWM pin: %d", PWM_PIN);
-    ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
-    ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
-    ledcWrite(pwmChannel, 255);                    // set default value to center so that focus or pump are in ground state
-    delay(30);
-    ledcWrite(pwmChannel, 0); // set default value to center so that focus or pump are in ground state
-
-    // test LEDs
-    // visualize we are "on"
-    setLamp(20);
-    delay(50);
-    setLamp(0);
 
     // Now load and apply any saved preferences
     if (filesystem)
@@ -816,9 +492,6 @@ void setup()
     {
         Serial.println("No Internal Filesystem, cannot load or save preferences");
     }
-
-    // before we start the WIFI - check if we are in deep-sleep/anglerfishmode
-    initAnglerfish(isTimelapseAnglerfish);
 
     // MDNS Config -- note that if OTA is NOT enabled this needs prior steps!
     MDNS.addService("http", "tcp", 80);
@@ -839,385 +512,37 @@ void setup()
     }
 }
 
-void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int stepMax = 100)
-{
-    /*
-    Acquire a stack of images
-    */
-    for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
-    {
-        saveImage(filename + String(imagesServed) + "_z" + String(iFocus), iFocus);
-    }
-}
-
+int WIFI_WATCHDOG = 15000;
 void loop()
 {
-    /*
-    if (Serial.available() > 0)
+    // client mode can fail; so reconnect as appropriate
+    static bool warned = false;
+    if (WiFi.status() == WL_CONNECTED)
     {
-        uint8_t b = Serial.read();
-
-        if (parse_improv_serial_byte(x_position, b, x_buffer, onCommandCallback, onErrorCallback))
+        // We are connected, wait a bit and re-check
+        if (warned)
         {
-            x_buffer[x_position++] = b;
+            // Tell the user if we have just reconnected
+            Serial.println("WiFi reconnected");
+            warned = false;
         }
-        else
+        // loop here for WIFI_WATCHDOG, turning debugData true/false depending on serial input..
+        unsigned long start = millis();
+        while (millis() - start < WIFI_WATCHDOG)
         {
-            x_position = 0;
+            delay(100);
         }
-              for(int i = 0; i < 16; i++)
-      {
-        Serial.println(x_buffer[i]);
-      }
-    }
-    */
-
-    // Timelapse Imaging
-    // Perform timelapse imaging
-    // timelapseInterval - will be changed by the httpd server
-    // isTimelapseGeneral - will be changed by the httpd server //= getIsTimelapseGeneral(SPIFFS);
-
-    if (isTimelapseGeneral and timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
-    {
-        writePrefsToSSpiffs(SPIFFS);
-        // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
-        log_d("Time to save a new image", timelapseInterval);
-        t_old = millis();
-        frameIndex = getFrameIndex(SPIFFS) + 1;
-
-        // turns on lamp automatically
-        // save to SD card if existent
-
-        String filename = "/timelapse_image" + String(imagesServed);
-        if (getAcquireStack(SPIFFS))
-        { // FIXME: We could have a switch in the GUI for this settig
-            // acquire a stack
-            // FIXME: decide which method to use..
-            log_d("Acquireing stack");
-            imagesServed++;
-            acquireFocusStack(filename, 10);
-        }
-        else
-        {
-            // Acquire the image and save
-            String filename = "/timelapse_image" + String(imagesServed);
-            imagesServed++;
-            saveImage(filename, 0);
-        }
-
-        // set default lamp value for streaming
-        setLamp(lampVal);
-
-        // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
-        setFrameIndex(SPIFFS, frameIndex);
-    }
-
-    if (otaEnabled)
-        ArduinoOTA.handle();
-}
-
-void loadAnglerfishCamSettings(int tExposure, int mGain)
-{
-    Serial.println("Resetting Camera Sensor Settings...");
-
-    // Apply manual settings for the camera
-    sensor_t *s = esp_camera_sensor_get();
-    s->set_framesize(s, FRAMESIZE_SVGA); // FRAMESIZE_QVGA);
-    s->set_gain_ctrl(s, 0);              // auto gain off (1 or 0)
-    s->set_exposure_ctrl(s, 0);          // auto exposure off (1 or 0)
-    s->set_agc_gain(s, mGain);           // set gain manually (0 - 30)
-    s->set_aec_value(s, tExposure);      // set exposure manually (0-1200)
-
-    // digest the settings => warmup camera
-    camera_fb_t *fb = NULL;
-    for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
-    {
-        // FIXME: Look at the buffer for the camera => flush vs. return
-        log_d("Capturing dummy frame %i", iDummyFrame);
-        fb = esp_camera_fb_get();
-        if (!fb)
-            log_e("Camera frame error", false);
-        esp_camera_fb_return(fb);
-
-        int mean_intensity = get_mean_intensity(fb);
-
-        Serial.print("Mean intensity: ");
-        Serial.println(mean_intensity);
-    }
-}
-
-void initAnglerfish(bool isTimelapseAnglerfish)
-{
-    log_d("Anglerfishmode is: %i", isTimelapseAnglerfish);
-    if (isTimelapseAnglerfish)
-    {
-// activate LED FIXME:
-#ifdef CAMERA_MODEL_AI_THINKER
-        rtc_gpio_hold_dis(GPIO_NUM_4);
-#endif
-        // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
-        Serial.println("In timelapse anglerfish mode.");
-
-        // override LED intensity settings
-        lampVal = 255;
-        setLamp(lampVal * autoLamp);
-
-        // Save image to SD card
-        Serial.println("1");
-        uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;
-        Serial.println("2");
-        // FIXME: decide which method to use..
-        setFrameIndex(SPIFFS, frameIndex);
-        Serial.println("3");
-        // Get the compile date and time as a string
-        String compileDate = String(__DATE__) + " " + String(__TIME__);
-        // Remove spaces and colons from the compile date and time string
-        compileDate.replace(" ", "_");
-        compileDate.replace(":", "");
-        Serial.println("1");
-        // Create a filename with the compile date and time string
-        String filename = "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed);
-
-        int stepSize = 10;
-        int stepMin = 0;
-        int stepMax = 100;
-
-        // FIXME: Make a stack of exposure values
-        if (getAcquireStack(SPIFFS))
-        {
-            log_d("Anglerfish: Acquire stack", 1);
-            acquireFocusStack(filename, stepSize, stepMin = stepMin, stepMax = stepMax);
-        }
-        else
-        {
-            log_d("Anglerfish: Acquire Exposure Series");
-            // under expose
-            loadAnglerfishCamSettings(1, 0);
-            saveImage(filename + "texp_1", 0);
-
-            // over expose
-            loadAnglerfishCamSettings(5, 0);
-            saveImage(filename + "texp_5", 0);
-
-            // over expose
-            loadAnglerfishCamSettings(10, 0);
-            saveImage(filename + "texp_10", 0);
-
-            // over expose
-            loadAnglerfishCamSettings(50, 0);
-            saveImage(filename + "texp_50", 0);
-
-            // over expose
-            loadAnglerfishCamSettings(100, 0);
-            saveImage(filename + "texp_100", 0);
-
-            // over expose
-            loadAnglerfishCamSettings(500, 0);
-            saveImage(filename + "texp_500", 0);
-        }
-
-        imagesServed++;
-
-        // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues?
-        setFrameIndex(SPIFFS, imagesServed);
-
-        // Sleep
-        if (timelapseInterval == -1)
-            timelapseInterval = 60; // do timelapse every five minutes if not set properly
-        Serial.print("Sleeping for ");
-        Serial.print(timelapseInterval);
-        Serial.println(" s");
-        static const uint64_t usPerSec = 1000000; // Conversion factor from microseconds to seconds
-        SD_MMC.end();                             // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
-
-        // turn off lamp entirely
-        pinMode(4, OUTPUT);
-        digitalWrite(4, LOW);
-        rtc_gpio_hold_en(GPIO_NUM_4); // Latch value when going into deep sleep
-
-        // go to deep sleep
-        esp_sleep_enable_timer_wakeup(timelapseInterval * usPerSec);
-        esp_deep_sleep_start();
-        return;
     }
     else
     {
-        Serial.println("In livestreaming mode. Connecting to pre-set Wifi");
-    }
-}
-
-/*************+
- *
- * IMPROV
- *
- * ***********
- */
-
-std::vector<std::string> getLocalUrl()
-{
-    return {
-        // URL where user can finish onboarding or use device
-        // Recommended to use website hosted by device
-        String("http://" + WiFi.localIP().toString()).c_str()};
-}
-
-void onErrorCallback(improv::Error err)
-{
-    blink_led(2000, 3);
-}
-
-bool onCommandCallback(improv::ImprovCommand cmd)
-{
-
-    switch (cmd.command)
-    {
-    case improv::Command::GET_CURRENT_STATE:
-    {
-        if ((WiFi.status() == WL_CONNECTED))
+        // disconnected; attempt to reconnect
+        if (!warned)
         {
-            set_state(improv::State::STATE_PROVISIONED);
-            std::vector<uint8_t> data = improv::build_rpc_response(improv::GET_CURRENT_STATE, getLocalUrl(), false);
-            send_response(data);
+            // Tell the user if we just disconnected
+            WiFi.disconnect(); // ensures disconnect is complete, wifi scan cleared
+            Serial.println("WiFi disconnected, retrying");
+            warned = true;
         }
-        else
-        {
-            set_state(improv::State::STATE_AUTHORIZED);
-        }
-
-        break;
+        initWifi();
     }
-
-    case improv::Command::WIFI_SETTINGS:
-    {
-        if (cmd.ssid.length() == 0)
-        {
-            set_error(improv::Error::ERROR_INVALID_RPC);
-            break;
-        }
-
-        set_state(improv::STATE_PROVISIONING);
-
-        if (connectWifi(cmd.ssid, cmd.password))
-        {
-
-            blink_led(100, 3);
-
-            // TODO: Persist credentials here
-            Serial.println("Connected to Wi-Fi!");
-            setWifiPW(SPIFFS, cmd.ssid.c_str());
-            setWifiSSID(SPIFFS, cmd.password.c_str());
-
-            set_state(improv::STATE_PROVISIONED);
-            std::vector<uint8_t> data = improv::build_rpc_response(improv::WIFI_SETTINGS, getLocalUrl(), false);
-            send_response(data);
-            // server.begin();
-        }
-        else
-        {
-            set_state(improv::STATE_STOPPED);
-            set_error(improv::Error::ERROR_UNABLE_TO_CONNECT);
-        }
-
-        break;
-    }
-
-    case improv::Command::GET_DEVICE_INFO:
-    {
-        std::vector<std::string> infos = {
-            // Firmware name
-            "ImprovWiFiDemo",
-            // Firmware version
-            "1.0.0",
-            // Hardware chip/variant
-            "ESP32",
-            // Device name
-            "SimpleWebServer"};
-        std::vector<uint8_t> data = improv::build_rpc_response(improv::GET_DEVICE_INFO, infos, false);
-        send_response(data);
-        break;
-    }
-
-    case improv::Command::GET_WIFI_NETWORKS:
-    {
-        getAvailableWifiNetworks();
-        break;
-    }
-
-    default:
-    {
-        set_error(improv::ERROR_UNKNOWN_RPC);
-        return false;
-    }
-    }
-
-    return true;
-}
-
-void getAvailableWifiNetworks()
-{
-    int networkNum = WiFi.scanNetworks();
-
-    for (int id = 0; id < networkNum; ++id)
-    {
-        std::vector<uint8_t> data = improv::build_rpc_response(
-            improv::GET_WIFI_NETWORKS, {WiFi.SSID(id), String(WiFi.RSSI(id)), (WiFi.encryptionType(id) == WIFI_AUTH_OPEN ? "NO" : "YES")}, false);
-        send_response(data);
-        delay(1);
-    }
-    // final response
-    std::vector<uint8_t> data =
-        improv::build_rpc_response(improv::GET_WIFI_NETWORKS, std::vector<std::string>{}, false);
-    send_response(data);
-}
-
-void set_state(improv::State state)
-{
-
-    std::vector<uint8_t> data = {'I', 'M', 'P', 'R', 'O', 'V'};
-    data.resize(11);
-    data[6] = improv::IMPROV_SERIAL_VERSION;
-    data[7] = improv::TYPE_CURRENT_STATE;
-    data[8] = 1;
-    data[9] = state;
-
-    uint8_t checksum = 0x00;
-    for (uint8_t d : data)
-        checksum += d;
-    data[10] = checksum;
-
-    Serial.write(data.data(), data.size());
-}
-
-void send_response(std::vector<uint8_t> &response)
-{
-    std::vector<uint8_t> data = {'I', 'M', 'P', 'R', 'O', 'V'};
-    data.resize(9);
-    data[6] = improv::IMPROV_SERIAL_VERSION;
-    data[7] = improv::TYPE_RPC_RESPONSE;
-    data[8] = response.size();
-    data.insert(data.end(), response.begin(), response.end());
-
-    uint8_t checksum = 0x00;
-    for (uint8_t d : data)
-        checksum += d;
-    data.push_back(checksum);
-
-    Serial.write(data.data(), data.size());
-}
-
-void set_error(improv::Error error)
-{
-    std::vector<uint8_t> data = {'I', 'M', 'P', 'R', 'O', 'V'};
-    data.resize(11);
-    data[6] = improv::IMPROV_SERIAL_VERSION;
-    data[7] = improv::TYPE_ERROR_STATE;
-    data[8] = 1;
-    data[9] = error;
-
-    uint8_t checksum = 0x00;
-    for (uint8_t d : data)
-        checksum += d;
-    data[10] = checksum;
-
-    Serial.write(data.data(), data.size());
 }
