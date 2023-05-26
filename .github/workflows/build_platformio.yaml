@@ -33,9 +33,9 @@ jobs:
     - name: Install platformIO libraries
       run: pio lib install
       
-    # run for WEMOS => pindef.h
+    # run for ESP32CAM
     - name: Run PlatformIO
-      run: pio run 
+      run: pio run --target esp32cam
     - name: merge into one binary
       run: |
         dir .pio/build/esp32cam/ 
@@ -57,4 +57,30 @@ jobs:
         user_email: 'bene.d@gmx.de'
         user_name: 'beniroquai'
         commit_message: 'A new firmware binary has been released (ESP32-matchboxscope.bin) => https://github.com/youseetoo/uc2-esp32'
+        
+    # run for Xiao Sense
+    - name: Run PlatformIO
+      run: pio run --target seeed_xiao_esp32s3
+    - name: merge into one binary
+      run: |
+        cd ..
+        dir .pio/build/seeed_xiao_esp32s3/ 
+        mv .pio/build/seeed_xiao_esp32s3/*.bin build/
+        cd build
+        python -m esptool --chip ESP32-S3 merge_bin -o xiao-sense-manifest.bin --flash_mode qio --flash_size 8MB 0x0000 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin
+    - uses: actions/upload-artifact@v3
+      with:
+        name: merged-firmware
+        path: build/xiao-sense-manifest.bin
+    - name: Push to youseetoo Webtool
+      uses: dmnemec/copy_file_to_another_repo_action@main
+      env:
+        API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
+      with:
+        source_file: 'build/xiao-sense-manifest.bin'
+        destination_repo: 'matchboxscope/matchboxscope.github.io'
+        destination_folder: 'static/firmware_build'
+        user_email: 'bene.d@gmx.de'
+        user_name: 'beniroquai'
+        commit_message: 'A new firmware binary has been released (xiao-sense-manifest.bin) => https://github.com/youseetoo/uc2-esp32'
         
