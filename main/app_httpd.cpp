@@ -72,7 +72,6 @@ extern int sensorPID;
 
 bool IS_STREAM_PAUSE = false;
 
-extern bool get_mean_intensity;
 extern bool sendToGithubFlag;
 typedef struct
 {
@@ -160,10 +159,6 @@ static esp_err_t capture_handler(httpd_req_t *req)
             log_e("Camera frame error", false);
         esp_camera_fb_return(fb);
 
-        int mean_intensity = get_mean_intensity(fb);
-
-        Serial.print("Mean intensity: ");
-        Serial.println(mean_intensity);
     }
     
     fb = esp_camera_fb_get();
