@@ -187,7 +187,8 @@ void handleSerial()
     }
 }
 
-bool connectWifi(std::string ssid, std::string password){
+bool connectWifi(std::string ssid, std::string password)
+{
     uint8_t count = 0;
     WiFi.begin(ssid.c_str(), password.c_str());
     while (WiFi.status() != WL_CONNECTED)
@@ -669,17 +670,6 @@ void setup()
     // Start Serial
     Serial.begin(115200);
 
-    delay(500);
-    Serial.println("...............");
-    // start wifi AP or connect to AP
-    initWifi();
-
-    // propagate URLs to GUI
-    calcURLs();
-
-    // setup OTA
-    setupOTA();
-
     // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
     if (!psramFound())
     {
@@ -720,6 +710,9 @@ void setup()
         // adjust compiled date to ensure next boot won't be detected as first boot
         log_d("Set compiled date");
         setCompiledDate(SPIFFS);
+
+        // reset anglerfishmode
+        setIsTimelapseAnglerfish(false);
     }
     // declare LED PIN
     pinMode(LED_PIN, OUTPUT);
@@ -735,6 +728,7 @@ void setup()
     // with a different pin mode.
     // 1-bit mode as suggested here:https://dr-mntn.net/2021/02/using-the-sd-card-in-1-bit-mode-on-the-esp32-cam-from-ai-thinker
 
+#if defined(CAMERA_MODEL_AI_THINKER)
     if (!SD_MMC.begin("/sdcard", true))
     { // FIXME: this sometimes leads to issues Unix vs. Windows formating - text encoding? Sometimes it copies to "sdcard" => Autoformating does this!!!
         Serial.println("SD Card Mount Failed");
@@ -763,6 +757,55 @@ void setup()
         }
     }
 
+#elif defined(CAMERA_MODEL_XIAO)
+    // Initialize SD card
+    if (!SD.begin(21))
+    {
+        Serial.println("Card Mount Failed");
+        sdInitialized = false;
+        setIsTimelapseAnglerfish(false);
+        isTimelapseAnglerfish = false;
+        // Flash the LED to show SD card is not connected
+        blink_led(50, 20);
+    }
+    else
+    {
+        uint8_t cardType = SD.cardType();
+
+        // Determine if the type of SD card is available
+        if (cardType == CARD_NONE)
+        {
+            Serial.println("No SD card attached");
+            sdInitialized = false;
+            setIsTimelapseAnglerfish(false);
+            isTimelapseAnglerfish = false;
+        }
+        else
+        {
+            sdInitialized = true;
+            Serial.println("SD Card Mounted");
+
+            Serial.print("SD Card Type: ");
+            if (cardType == CARD_MMC)
+            {
+                Serial.println("MMC");
+            }
+            else if (cardType == CARD_SD)
+            {
+                Serial.println("SDSC");
+            }
+            else if (cardType == CARD_SDHC)
+            {
+                Serial.println("SDHC");
+            }
+            else
+            {
+                Serial.println("UNKNOWN");
+            }
+        }
+    }
+
+#endif
     // Start threads for background frame publishing and serial handling // FIXME: Is this really necessary?
     if (!isTimelapseAnglerfish)
     {
@@ -819,6 +862,17 @@ void setup()
 
     // before we start the WIFI - check if we are in deep-sleep/anglerfishmode
     initAnglerfish(isTimelapseAnglerfish);
+
+    // WIFI-related settings
+    Serial.println("...............");
+    // start wifi AP or connect to AP
+    initWifi();
+
+    // propagate URLs to GUI
+    calcURLs();
+
+    // setup OTA
+    setupOTA();
 
     // MDNS Config -- note that if OTA is NOT enabled this needs prior steps!
     MDNS.addService("http", "tcp", 80);

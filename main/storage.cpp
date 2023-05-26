@@ -366,10 +366,15 @@ static const char wifissidKey[] = "mssid";
 String getWifiSSID(fs::FS &fs)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  if (mConfig.containsKey(wifissidKey))
+  if (mConfig.containsKey(wifissidKey)){
+    log_d("getWifiSSID: %s", mConfig[wifissidKey].as<String>().c_str());
     return mConfig[wifissidKey];
-  else
+    }
+  else{
+    log_d("getWifiSSID: %s", mssid);
     return mssid;
+  }
+    
 }
 
 void setWifiSSID(fs::FS &fs, String value)
