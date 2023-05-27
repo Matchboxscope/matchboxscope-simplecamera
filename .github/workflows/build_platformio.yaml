@@ -86,7 +86,7 @@ jobs:
       with:
         source_file: 'build/xiao-sense-manifest.bin'
         destination_repo: 'matchboxscope/matchboxscope.github.io'
-        destination_folder: 'static/firmware_build'
+        destination_folder: 'static/firmware/static/firmware_build'
         user_email: 'bene.d@gmx.de'
         user_name: 'beniroquai'
         commit_message: 'A new firmware binary has been released (xiao-sense-manifest.bin) => https://github.com/youseetoo/uc2-esp32'
