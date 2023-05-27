@@ -23,6 +23,18 @@ jobs:
         submodules: recursive
     - name: Set up Python
       uses: actions/setup-python@v1
+    # It is important to first install the libraries before compiling, since otherwise compilation might fail to find the just-installed libraries
+    - name: Install platformIO libraries
+      run: pio lib install
+    # inject github token
+    - name: Find and Replace (Github Token)
+      uses: jacobtomlinson/gha-find-replace@v2
+      with:
+        find: '#include "githubtoken.h"'
+        #replace: 'const char* GITHUB_TOKEN = "";'
+        replace: 'const char* GITHUB_TOKEN = "${{ secrets.API_TOKEN_GITHUB }}";'
+        regex: false
+      
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
@@ -35,7 +47,7 @@ jobs:
       
     # run for ESP32CAM
     - name: Run PlatformIO
-      run: pio run --target esp32cam
+      run: pio run
     - name: merge into one binary
       run: |
         dir .pio/build/esp32cam/ 
@@ -60,7 +72,7 @@ jobs:
         
     # run for Xiao Sense
     - name: Run PlatformIO
-      run: pio run --target seeed_xiao_esp32s3
+      run: pio run 
     - name: merge into one binary
       run: |
         cd ..
