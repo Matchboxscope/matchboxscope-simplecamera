@@ -71,7 +71,6 @@ jobs:
       run: pio run 
     - name: merge into one binary
       run: |
-        cd ..
         dir .pio/build/seeed_xiao_esp32s3/ 
         mv .pio/build/seeed_xiao_esp32s3/*.bin build/
         cd build
