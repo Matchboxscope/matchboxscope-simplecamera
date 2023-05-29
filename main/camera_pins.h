@@ -35,7 +35,7 @@
 #define HREF_GPIO_NUM 23
 #define PCLK_GPIO_NUM 22
 
-#elif defined(CAMERA_MODEL_XIAO)
+    #elif defined(CAMERA_MODEL_XIAO)
 //
 // ESP XIAO
 // https://dl.espressif.com/dl/schematics/ESP-WROVER-KIT_SCH-2.pdf
