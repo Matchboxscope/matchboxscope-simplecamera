@@ -697,7 +697,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     }
     else if (!strcmp(variable, "pwm") && (pwmVal != -1))
     {
-        pwmVal = constrain(val, 0, 100);
+        pwmVal = val; //constrain(val, 0, 100);
         setPWM(pwmVal);
     }
     else if (!strcmp(variable, "timelapseInterval"))

@@ -54,7 +54,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
               <div class="input-group hidden" id="pwm-group" title="PWM value.&#013;&#013;Warning:&#013;This controls an external element such as the PWM-driven Lens or the pump on pin 12.">
                 <label for="pwm">PWM</label>
                 <div class="range-min">Off</div>
-                <input type="range" id="pwm" min="0" max="255" value="0" class="default-action">
+                <input type="range" id="pwm" min="0" max="512" value="0" class="default-action">
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
               </div>
               <div class="input-group hidden" id="timelapseInterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">

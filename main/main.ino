@@ -123,7 +123,12 @@ int sensorPID;
 // Camera module bus communications frequency.
 // Originally: config.xclk_freq_mhz = 20000000, but this lead to visual artifacts on many modules.
 // See https://github.com/espressif/esp32-camera/issues/150#issuecomment-726473652 et al.
+#if defined(CAMERA_MODEL_AI_THINKER)
 unsigned long xclk = 8;
+#elif defined(CAMERA_MODEL_XIAO)
+unsigned long xclk = 20;
+#endif
+
 
 // initial rotation of the camera image
 int myRotation = 0;
@@ -146,8 +151,13 @@ bool autoLamp = false; // Automatic lamp (auto on while camera running)
 int pwmVal = 0;        // default no-value
 bool BUSY_SET_LED = false;
 
+#if defined(CAMERA_MODEL_AI_THINKER)
 int lampChannel = 7; // a free PWM channel (some channels used by camera)
 int pwmChannel = 5;
+#elif defined(CAMERA_MODEL_XIAO)
+int lampChannel = 1; // a free PWM channel (some channels used by camera)
+int pwmChannel = 2;
+#endif
 const int pwmfreq = 50000;   // 50K pwm frequency
 const int pwmresolution = 9; // duty cycle bit range
 const int pwmMax = pow(2, pwmresolution) - 1;
