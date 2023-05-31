@@ -98,29 +98,12 @@ void loop()
   // Check for incoming serial commands
   if (Serial.available() > 0)
   {
-    String command = Serial.readStringUntil('\n'); // Read the incoming command until a newline character is encountered
-
-    // Parse the received command into x and y coordinates
-    int delimiterIndex = command.indexOf(','); // Find the index of the comma delimiter
-    if (delimiterIndex != -1)
-    {
-      String xString = command.substring(0, delimiterIndex);  // Extract the x coordinate substring
-      String yString = command.substring(delimiterIndex + 1); // Extract the y coordinate substring
-
-      x = xString.toInt(); // Convert the x coordinate string to an integer
-      y = yString.toInt(); // Convert the y coordinate string to an integer
-
-      // Do something with the x and y coordinates
-      // For example, you can print them:
-      Serial.print("Received coordinates: ");
-      Serial.print("x = ");
-      Serial.print(x);
-      Serial.print(", y = ");
-      Serial.println(y);
-    }
-  }
-  if (isStreaming)
+    delay(50);
+    Serial.read(); // Read the incoming command until a newline character is encountered
     grabImage();
+
+    }
+  
 }
 
 void cameraInit()
