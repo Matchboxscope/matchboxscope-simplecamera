@@ -1525,7 +1525,9 @@ bool saveImage(String filename, int pwmVal)
             res = false;
             return res;
         }
-
+        // save energy
+        setPWM(0);
+        
         size_t fb_len = 0;
         if (fb->format == PIXFORMAT_JPEG)
         {

@@ -613,7 +613,7 @@ bool StartCamera()
 
     // get mean intensities
     camera_fb_t *fb = NULL;
-    for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
+    for (int iDummyFrame = 0; iDummyFrame < 2; iDummyFrame++)
     {
         // FIXME: Look at the buffer for the camera => flush vs. return
         log_d("Capturing dummy frame %i", iDummyFrame);
@@ -994,7 +994,7 @@ void loadAnglerfishCamSettings(int tExposure, int mGain)
 
     // digest the settings => warmup camera
     camera_fb_t *fb = NULL;
-    for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
+    for (int iDummyFrame = 0; iDummyFrame < 2; iDummyFrame++)
     {
         // FIXME: Look at the buffer for the camera => flush vs. return
         log_d("Capturing dummy frame %i", iDummyFrame);
@@ -1040,9 +1040,9 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         compileDate.replace(":", "");
         Serial.println("1");
 
-        int stepSize = 50;
-        int stepMin = 0;
-        int stepMax = 512;
+        int stepSize = 2;
+        int stepMin = 270;
+        int stepMax = 296;
         bool isAcquireStack = getAcquireStack(SPIFFS);
 
         for (int iFocus = stepMin; iFocus < isAcquireStack*stepMax; iFocus += stepSize){
@@ -1052,27 +1052,27 @@ void initAnglerfish(bool isTimelapseAnglerfish)
             log_d("Anglerfish: Acquire Exposure Series");
             // under expose
             loadAnglerfishCamSettings(1, 0);
-            saveImage(filename + "texp_1", 0);
+            saveImage(filename + "texp_1", iFocus);
 
             // over expose
             loadAnglerfishCamSettings(5, 0);
-            saveImage(filename + "texp_5", 0);
+            saveImage(filename + "texp_5", iFocus);
 
             // over expose
             loadAnglerfishCamSettings(10, 0);
-            saveImage(filename + "texp_10", 0);
+            saveImage(filename + "texp_10", iFocus);
 
             // over expose
             loadAnglerfishCamSettings(50, 0);
-            saveImage(filename + "texp_50", 0);
+            saveImage(filename + "texp_50", iFocus);
 
             // over expose
             loadAnglerfishCamSettings(100, 0);
-            saveImage(filename + "texp_100", 0);
+            saveImage(filename + "texp_100", iFocus);
 
             // over expose
             loadAnglerfishCamSettings(500, 0);
-            saveImage(filename + "texp_500", 0);
+            saveImage(filename + "texp_500", iFocus);
         }
         setPWM(0);
         imagesServed++;
