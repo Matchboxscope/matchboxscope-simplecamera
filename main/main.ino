@@ -1039,21 +1039,16 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         compileDate.replace(" ", "_");
         compileDate.replace(":", "");
         Serial.println("1");
-        // Create a filename with the compile date and time string
-        String filename = "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed);
 
-        int stepSize = 10;
+        int stepSize = 50;
         int stepMin = 0;
-        int stepMax = 100;
+        int stepMax = 512;
+        bool isAcquireStack = getAcquireStack(SPIFFS);
 
-        // FIXME: Make a stack of exposure values
-        if (getAcquireStack(SPIFFS))
-        {
-            log_d("Anglerfish: Acquire stack", 1);
-            acquireFocusStack(filename, stepSize, stepMin = stepMin, stepMax = stepMax);
-        }
-        else
-        {
+        for (int iFocus = stepMin; iFocus < isAcquireStack*stepMax; iFocus += stepSize){
+            String filename = "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed)+ "_z" + String(iFocus)+"_";
+
+            setPWM(iFocus);
             log_d("Anglerfish: Acquire Exposure Series");
             // under expose
             loadAnglerfishCamSettings(1, 0);
@@ -1079,7 +1074,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
             loadAnglerfishCamSettings(500, 0);
             saveImage(filename + "texp_500", 0);
         }
-
+        setPWM(0);
         imagesServed++;
 
         // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues?
