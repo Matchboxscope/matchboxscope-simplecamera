@@ -144,7 +144,7 @@ void cameraInit()
   else
   {
     config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = FRAMESIZE_VGA; // for streaming}
+    config.frame_size = FRAMESIZE_QVGA; // for streaming}
 
     config.fb_count = 1;
   }
