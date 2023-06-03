@@ -89,7 +89,7 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "Blynk"; // default values
+const char *mssid = "Blynk1"; // default values
 const char *mpassword = "12345678";
 
 #define WIFI_WATCHDOG 15000
@@ -276,7 +276,7 @@ void initWifi()
     String mssid_tmp = getWifiSSID(SPIFFS);
     String mpassword_tmp = getWifiPW(SPIFFS);
 
-    int randomID = random(10);
+    int randomID = random(100);
     String ssid = "Matchboxscope-" + String(randomID, HEX);
 
     // if mssid_tmp is "" open access point
@@ -673,8 +673,7 @@ int get_mean_intensity(camera_fb_t *fb)
     return mean_intensity;
 }
 
-#define WIFI_SSID "Blynk"
-#define WIFI_PASS "12345678"
+
 void setup()
 {
     // Start Serial
@@ -997,7 +996,7 @@ void loadAnglerfishCamSettings(int tExposure, int mGain)
     for (int iDummyFrame = 0; iDummyFrame < 2; iDummyFrame++)
     {
         // FIXME: Look at the buffer for the camera => flush vs. return
-        log_d("Capturing dummy frame %i", iDummyFrame);
+        //log_d("Capturing dummy frame %i", iDummyFrame);
         fb = esp_camera_fb_get();
         if (!fb)
             log_e("Camera frame error", false);
@@ -1005,9 +1004,8 @@ void loadAnglerfishCamSettings(int tExposure, int mGain)
 
         int mean_intensity = get_mean_intensity(fb);
 
-        Serial.print("Mean intensity: ");
-        Serial.println(mean_intensity);
     }
+    
 }
 
 void initAnglerfish(bool isTimelapseAnglerfish)
@@ -1045,8 +1043,11 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         int stepMax = 296;
         bool isAcquireStack = getAcquireStack(SPIFFS);
 
+        long time1 = millis();
         for (int iFocus = stepMin; iFocus < isAcquireStack*stepMax; iFocus += stepSize){
-            String filename = "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed)+ "_z" + String(iFocus)+"_";
+            String folderName = "/"+String(imagesServed);
+            SD.mkdir(folderName);
+            String filename = folderName+"/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed)+ "_z" + String(iFocus)+"_";
 
             setPWM(iFocus);
             log_d("Anglerfish: Acquire Exposure Series");
@@ -1076,6 +1077,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         }
         setPWM(0);
         imagesServed++;
+        log_d("Acquisition took %i ms", millis() - time1);
 
         // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues?
         setFrameIndex(SPIFFS, imagesServed);

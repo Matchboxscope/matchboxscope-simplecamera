@@ -1489,7 +1489,6 @@ bool saveImage(String filename, int pwmVal)
     // set PWM value e.g.
     if (pwmVal > -1)
     {
-        log_d("Setting PWM Value");
         setPWM(pwmVal);
     }
 
@@ -1527,7 +1526,7 @@ bool saveImage(String filename, int pwmVal)
         }
         // save energy
         setPWM(0);
-        
+
         size_t fb_len = 0;
         if (fb->format == PIXFORMAT_JPEG)
         {
