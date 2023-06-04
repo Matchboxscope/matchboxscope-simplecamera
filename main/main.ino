@@ -1046,6 +1046,9 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         long time1 = millis();
         for (int iFocus = stepMin; iFocus < isAcquireStack*stepMax; iFocus += stepSize){
             String folderName = "/"+String(imagesServed);
+            // FIXME: If we save single files to the SD card, the time to store them growth with every file
+            // workaround for now: We store them in a folders 
+            // some insights:https://forum.arduino.cc/t/esp32-cam-drastic-slowdown-in-writing-to-the-sd-card-with-increasing-number-of-files/1094767
             SD.mkdir(folderName);
             String filename = folderName+"/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed)+ "_z" + String(iFocus)+"_";
 
