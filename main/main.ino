@@ -48,6 +48,11 @@ void setup()
 {
     Serial.begin(1000000);
     cameraInit();
+
+    // flush serial
+      while (Serial.available() > 0) {
+    char c = Serial.read();
+  }
 }
 
 /**
@@ -55,17 +60,24 @@ void setup()
 */
 void loop()
 {
-    if (!capture_still())
-    {
-        Serial.println("Failed capture");
-        delay(3000);
 
-        return;
+    if (Serial.available() > 0)
+    {
+        delay(50);
+        Serial.println(Serial.read()); // Read the incoming command until a newline character is encountered
+
+        if (!capture_still())
+        {
+            Serial.println("Failed capture");
+            delay(3000);
+
+            return;
+        }
+
+        // convolve_gaussian();
     }
 
-    convolve_gaussian();
-
-    find_max_pix();
+    // find_max_pix();
     /*
     Serial.print("My X: ");
     Serial.print(max_x);
@@ -108,7 +120,7 @@ void cameraInit()
     config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
     config.fb_location = CAMERA_FB_IN_PSRAM;
     config.jpeg_quality = 12;
-    config.pixel_format = PIXFORMAT_JPEG;
+    config.pixel_format = PIXFORMAT_GRAYSCALE;
     config.frame_size = FRAMESIZE_QVGA; // for streaming}
 
     config.fb_count = 1;
@@ -123,6 +135,7 @@ void cameraInit()
     sensor_t *s = esp_camera_sensor_get();
     s->set_hmirror(s, 1);
     s->set_vflip(s, 1);
+    s->set_special_effect(s, 2); // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
 }
 
 /**
@@ -159,10 +172,21 @@ bool capture_still()
         for (int x = 0; x < W; x++)
             current_frame[y][x] /= BLOCK_SIZE * BLOCK_SIZE;
 
-#if 0
-    Serial.println("Current frame:");
+#if 1
+    // Convert the 2D array to a byte array
+    uint8_t* byte_array = (uint8_t*)current_frame;
+    size_t byte_array_length = H * W * sizeof(uint16_t);
+
+    // Send the byte array over serial
+    Serial.print("+++");
+    Serial.write(byte_array, byte_array_length);
+    Serial.print("---");
+
+/*
+    Serial.println("+++");
     print_frame(current_frame);
-    Serial.println("---------------");
+    Serial.println("---");
+    */
 #endif
 
     esp_camera_fb_return(frame_buffer);
@@ -231,20 +255,25 @@ void convolve_gaussian()
         }
     }
 
-#if DEBUG
-// Convert the 2D array to a byte array
-/*
-uint8_t* byte_array = (uint8_t*)proc_frame;
-size_t byte_array_length = H * W * sizeof(uint16_t);
+#if 0
+    // Convert the 2D array to a byte array
+    uint8_t* byte_array = (uint8_t*)proc_frame;
+    size_t byte_array_length = H * W * sizeof(uint16_t);
 
-// Send the byte array over serial
-Serial.println("###NEWFRAME###");
-Serial.write(byte_array, byte_array_length);
-*/
+    // Send the byte array over serial
+    Serial.print("+++");
+    Serial.write(byte_array, byte_array_length);
+    Serial.print("---");
+    // flush serial
+      while (Serial.available() > 0) {
+    char c = Serial.read();
+  }
+    /*
+    
     Serial.println("+++");
     print_frame(proc_frame);
     Serial.println("---");
-  
+    */
 #endif
 }
 
