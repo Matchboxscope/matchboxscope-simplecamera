@@ -12,15 +12,15 @@ broker_port = 1883
 
 
 import threading
-def startBroker():
-    exec(open("PYTHON/startBroker.py").read())
-threading.Thread(target=startBroker).start()
+#def startBroker():
+#    exec(open("PYTHON/startBroker.py").read())
+#threading.Thread(target=startBroker).start()
 
 # Callback triggered when the client connects to the MQTT broker
 def on_connect(client, userdata, flags, rc):
     print("Connected to MQTT broker with result code " + str(rc))
     # Subscribe to a topic when connected
-    client.subscribe("mytopic")
+    client.subscribe("IP/ID")
 
 # Callback triggered when a message is received on a subscribed topic
 def on_message(client, userdata, msg):
@@ -48,7 +48,8 @@ while True:
     try:
         # Publish a message
         message = "Hello, MQTT!"
-        client.publish("mytopic", message)
+        print("sending")
+        client.publish("IP/ID", message)
 
         # Sleep for a while
         time.sleep(1)

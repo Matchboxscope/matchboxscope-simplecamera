@@ -14,6 +14,7 @@
 #include "esp_gap_ble_api.h"
 #include "improv.h"
 #include "PubSubClient.h"
+#include <ESP32Ping.h>
 
 // camera configuration
 #define CAM_NAME "Omniscope"
@@ -22,9 +23,9 @@ char default_index[] = "full";
 // Primary config, or defaults.
 struct station
 {
-    const char ssid[65];
-    const char password[65];
-    const bool dhcp;
+  const char ssid[65];
+  const char password[65];
+  const bool dhcp;
 }; // do no edit
 
 // unique id per setup
@@ -37,7 +38,8 @@ uint32_t uniqueID = 0;
 camera_config_t config;
 
 // MQTT stuff
-const char *mqtt_server = "192.168.2.191";
+const char *mqtt_server = "mqtt://test.mosquitto.org/";
+//#define MQTT_SOCKET_TIMEOUT 1
 WiFiClient espClient;
 PubSubClient client(espClient);
 long lastMsg = 0;
@@ -84,8 +86,8 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "BenMur";         //"omniscope"; // default values
-const char *mpassword = "MurBen3128"; //"omniscope";
+const char *mssid = "Blynk";        //"omniscope"; // default values
+const char *mpassword = "12345678"; //"omniscope";
 
 // DNS server
 const byte DNS_PORT = 53;
@@ -127,375 +129,384 @@ String critERR = "";
 
 void initWifi()
 {
-    /*
-     * WIFI-related settings
-     */
-    // TODO: Try to connect here if credentials are available
-    //  load SSID/PW from SPIFFS
-    String mssid_tmp = getWifiSSID(SPIFFS);
-    String mpassword_tmp = getWifiPW(SPIFFS);
+  /*
+   * WIFI-related settings
+   */
+  // TODO: Try to connect here if credentials are available
+  //  load SSID/PW from SPIFFS
+  String mssid_tmp = getWifiSSID(SPIFFS);
+  String mpassword_tmp = getWifiPW(SPIFFS);
 
-    // try to connect to available Network
-    log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
-    WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
-    WiFi.setSleep(false);
-    log_d("Initi Wifi works");
+  // try to connect to available Network
+  log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
+  WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
+  WiFi.setSleep(false);
+  log_d("Initi Wifi works");
 
-    int nTrialWifiConnect = 0;
-    int nTrialWifiConnectMax = 30;
-    int tWaitWifiConnect = 500;
-    while (WiFi.status() != WL_CONNECTED)
+  int nTrialWifiConnect = 0;
+  int nTrialWifiConnectMax = 30;
+  int tWaitWifiConnect = 500;
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    log_d("Connecting to Wi-Fi...");
+    nTrialWifiConnect++;
+    delay(tWaitWifiConnect);
+
+    if (nTrialWifiConnect > nTrialWifiConnectMax)
     {
-        log_d("Connecting to Wi-Fi...");
-        nTrialWifiConnect++;
-        delay(tWaitWifiConnect);
-
-        if (nTrialWifiConnect > nTrialWifiConnectMax)
-        {
-            WiFi.disconnect(); // (resets the WiFi scan)
-            WiFi.mode(WIFI_AP);
-            ESP.restart();
-        }
+      WiFi.disconnect(); // (resets the WiFi scan)
+      WiFi.mode(WIFI_AP);
+      ESP.restart();
     }
+  }
 }
 
 // Notification LED
 void flashLED(int flashtime)
 {
 #ifdef CAMERA_MODEL_AI_THINKER
-    digitalWrite(LED_PIN, LED_ON);  // On at full power.
-    delay(flashtime);               // delay
-    digitalWrite(LED_PIN, LED_OFF); // turn Off
+  digitalWrite(LED_PIN, LED_ON);  // On at full power.
+  delay(flashtime);               // delay
+  digitalWrite(LED_PIN, LED_OFF); // turn Off
 #endif
 }
 
 void blink_led(int d, int times)
 {
-    for (int j = 0; j < times; j++)
-    {
-        flashLED(d);
-        delay(d);
-    }
+  for (int j = 0; j < times; j++)
+  {
+    flashLED(d);
+    delay(d);
+  }
 }
 
 void calcURLs()
 {
-    // Note AP details
-    if (is_accesspoint)
-        ip = WiFi.softAPIP();
-    else
-        ip = WiFi.localIP();
-    net = WiFi.subnetMask();
-    gw = WiFi.gatewayIP();
+  // Note AP details
+  if (is_accesspoint)
+    ip = WiFi.softAPIP();
+  else
+    ip = WiFi.localIP();
+  net = WiFi.subnetMask();
+  gw = WiFi.gatewayIP();
 
-    // Set the URL's
-    Serial.println("Setting httpURL");
-    if (httpPort != 80)
-    {
-        sprintf(httpURL, "http://%d.%d.%d.%d:%d/", ip[0], ip[1], ip[2], ip[3], httpPort);
-    }
-    else
-    {
-        sprintf(httpURL, "http://%d.%d.%d.%d/", ip[0], ip[1], ip[2], ip[3]);
-    }
-    sprintf(streamURL, "http://%d.%d.%d.%d:%d/", ip[0], ip[1], ip[2], ip[3], streamPort);
+  // Set the URL's
+  Serial.println("Setting httpURL");
+  if (httpPort != 80)
+  {
+    sprintf(httpURL, "http://%d.%d.%d.%d:%d/", ip[0], ip[1], ip[2], ip[3], httpPort);
+  }
+  else
+  {
+    sprintf(httpURL, "http://%d.%d.%d.%d/", ip[0], ip[1], ip[2], ip[3]);
+  }
+  sprintf(streamURL, "http://%d.%d.%d.%d:%d/", ip[0], ip[1], ip[2], ip[3], streamPort);
 }
 
 bool StartCamera()
 {
-    bool initSuccess = false;
-    Serial.println("Xiao Sense Camera initialization");
-    config.ledc_channel = LEDC_CHANNEL_0;
-    config.ledc_timer = LEDC_TIMER_0;
-    config.pin_d0 = Y2_GPIO_NUM;
-    config.pin_d1 = Y3_GPIO_NUM;
-    config.pin_d2 = Y4_GPIO_NUM;
-    config.pin_d3 = Y5_GPIO_NUM;
-    config.pin_d4 = Y6_GPIO_NUM;
-    config.pin_d5 = Y7_GPIO_NUM;
-    config.pin_d6 = Y8_GPIO_NUM;
-    config.pin_d7 = Y9_GPIO_NUM;
-    config.pin_xclk = XCLK_GPIO_NUM;
-    config.pin_pclk = PCLK_GPIO_NUM;
-    config.pin_vsync = VSYNC_GPIO_NUM;
-    config.pin_href = HREF_GPIO_NUM;
-    config.pin_sccb_sda = SIOD_GPIO_NUM;
-    config.pin_sccb_scl = SIOC_GPIO_NUM;
-    config.pin_pwdn = PWDN_GPIO_NUM;
-    config.pin_reset = RESET_GPIO_NUM;
-    config.xclk_freq_hz = 20000000;
-    config.frame_size = FRAMESIZE_UXGA;
-    config.pixel_format = PIXFORMAT_JPEG;
-    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-    config.fb_location = CAMERA_FB_IN_PSRAM;
-    config.jpeg_quality = 12;
-    config.fb_count = 1;
-    if (config.pixel_format == PIXFORMAT_JPEG)
+  bool initSuccess = false;
+  Serial.println("Xiao Sense Camera initialization");
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
+  config.pin_sccb_sda = SIOD_GPIO_NUM;
+  config.pin_sccb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = RESET_GPIO_NUM;
+  config.xclk_freq_hz = 20000000;
+  config.frame_size = FRAMESIZE_UXGA;
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+  config.fb_location = CAMERA_FB_IN_PSRAM;
+  config.jpeg_quality = 12;
+  config.fb_count = 1;
+  if (config.pixel_format == PIXFORMAT_JPEG)
+  {
+    if (psramFound())
     {
-        if (psramFound())
-        {
-            config.jpeg_quality = 10;
-            config.fb_count = 2;
-            config.grab_mode = CAMERA_GRAB_LATEST;
-        }
-        else
-        {
-            // Limit the frame size when PSRAM is not available
-            config.frame_size = FRAMESIZE_SVGA;
-            config.fb_location = CAMERA_FB_IN_DRAM;
-        }
+      config.jpeg_quality = 10;
+      config.fb_count = 2;
+      config.grab_mode = CAMERA_GRAB_LATEST;
     }
     else
     {
-        // Best option for face detection/recognition
-        config.frame_size = FRAMESIZE_240X240;
-        config.fb_count = 2;
+      // Limit the frame size when PSRAM is not available
+      config.frame_size = FRAMESIZE_SVGA;
+      config.fb_location = CAMERA_FB_IN_DRAM;
     }
+  }
+  else
+  {
+    // Best option for face detection/recognition
+    config.frame_size = FRAMESIZE_240X240;
+    config.fb_count = 2;
+  }
 
-    // camera init
+  // camera init
+  esp_err_t err = esp_camera_init(&config);
+  if (err != ESP_OK)
+  {
+    delay(100); // need a delay here or the next serial o/p gets missed
+    Serial.printf("\r\n\r\nCRITICAL FAILURE: Camera sensor failed to initialise.\r\n\r\n");
+    Serial.printf("A full (hard, power off/on) reboot will probably be needed to recover from this.\r\n");
+    Serial.printf("Meanwhile; this unit will reboot in 1 minute since these errors sometime clear automatically\r\n");
+    // Reset the I2C bus.. may help when rebooting.
+    periph_module_disable(PERIPH_I2C0_MODULE); // try to shut I2C down properly in case that is the problem
+    periph_module_disable(PERIPH_I2C1_MODULE);
+    periph_module_reset(PERIPH_I2C0_MODULE);
+    periph_module_reset(PERIPH_I2C1_MODULE);
+    // And set the error text for the UI
+    critERR = "<h1>Error!</h1><hr><p>Camera module failed to initialise!</p><p>Please reset (power off/on) the camera.</p>";
+    critERR += "<p>We will continue to reboot once per minute since this error sometimes clears automatically.</p>";
+    // Start a 60 second watchdog timer
+    esp_task_wdt_init(60, true);
+    esp_task_wdt_add(NULL);
+    initSuccess = false;
+
+    // try it again
     esp_err_t err = esp_camera_init(&config);
     if (err != ESP_OK)
     {
-        delay(100); // need a delay here or the next serial o/p gets missed
-        Serial.printf("\r\n\r\nCRITICAL FAILURE: Camera sensor failed to initialise.\r\n\r\n");
-        Serial.printf("A full (hard, power off/on) reboot will probably be needed to recover from this.\r\n");
-        Serial.printf("Meanwhile; this unit will reboot in 1 minute since these errors sometime clear automatically\r\n");
-        // Reset the I2C bus.. may help when rebooting.
-        periph_module_disable(PERIPH_I2C0_MODULE); // try to shut I2C down properly in case that is the problem
-        periph_module_disable(PERIPH_I2C1_MODULE);
-        periph_module_reset(PERIPH_I2C0_MODULE);
-        periph_module_reset(PERIPH_I2C1_MODULE);
-        // And set the error text for the UI
-        critERR = "<h1>Error!</h1><hr><p>Camera module failed to initialise!</p><p>Please reset (power off/on) the camera.</p>";
-        critERR += "<p>We will continue to reboot once per minute since this error sometimes clears automatically.</p>";
-        // Start a 60 second watchdog timer
-        esp_task_wdt_init(60, true);
-        esp_task_wdt_add(NULL);
-        initSuccess = false;
-
-        // try it again
-        esp_err_t err = esp_camera_init(&config);
-        if (err != ESP_OK)
-        {
-            log_d("Second attempt worked..");
-        }
-        else
-        {
-            log_d("Second attempt to initialize failed too, resetting SPIFFS; probably something went wrong with a weird combination of camera settings");
-            removePrefs(SPIFFS);
-
-            ESP.restart();
-        }
+      log_d("Second attempt worked..");
     }
     else
     {
-        Serial.println("Camera init succeeded");
+      log_d("Second attempt to initialize failed too, resetting SPIFFS; probably something went wrong with a weird combination of camera settings");
+      removePrefs(SPIFFS);
 
-        // Get a reference to the sensor
-        sensor_t *s = esp_camera_sensor_get();
-
-        // Dump camera module, warn for unsupported modules.
-        sensorPID = s->id.PID;
-        switch (sensorPID)
-        {
-        case OV9650_PID:
-            Serial.println("WARNING: OV9650 camera module is not properly supported, will fallback to OV2640 operation");
-            break;
-        case OV7725_PID:
-            Serial.println("WARNING: OV7725 camera module is not properly supported, will fallback to OV2640 operation");
-            break;
-        case OV2640_PID:
-            Serial.println("OV2640 camera module detected");
-            break;
-        case OV3660_PID:
-            Serial.println("OV3660 camera module detected");
-            break;
-        default:
-            Serial.println("WARNING: Camera module is unknown and not properly supported, will fallback to OV2640 operation");
-        }
-
-        // OV3660 initial sensors are flipped vertically and colors are a bit saturated
-        if (sensorPID == OV3660_PID)
-        {
-            s->set_vflip(s, 1);       // flip it back
-            s->set_brightness(s, 1);  // up the blightness just a bit
-            s->set_saturation(s, -2); // lower the saturation
-        }
-
-        /*
-         * Add any other defaults you want to apply at startup here:
-         * uncomment the line and set the value as desired (see the comments)
-         *
-         * these are defined in the esp headers here:
-         * https://github.com/espressif/esp32-camera/blob/master/driver/include/sensor.h#L149
-         */
-
-        // s->set_framesize(s, FRAMESIZE_SVGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
-        // s->set_quality(s, val);       // 10 to 63
-        // s->set_brightness(s, 0);      // -2 to 2
-        // s->set_contrast(s, 0);        // -2 to 2
-        // s->set_saturation(s, 0);      // -2 to 2
-        // s->set_special_effect(s, 0);  // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
-        // s->set_whitebal(s, 1);        // aka 'awb' in the UI; 0 = disable , 1 = enable
-        // s->set_awb_gain(s, 1);        // 0 = disable , 1 = enable
-        // s->set_wb_mode(s, 0);         // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
-        // s->set_exposure_ctrl(s, 1);   // 0 = disable , 1 = enable
-        // s->set_aec2(s, 0);            // 0 = disable , 1 = enable
-        // s->set_ae_level(s, 0);        // -2 to 2
-        // s->set_aec_value(s, 300);     // 0 to 1200
-        // s->set_gain_ctrl(s, 1);       // 0 = disable , 1 = enable
-        // s->set_agc_gain(s, 0);        // 0 to 30
-        // s->set_gainceiling(s, (gainceiling_t)0);  // 0 to 6
-        // s->set_bpc(s, 0);             // 0 = disable , 1 = enable
-        // s->set_wpc(s, 1);             // 0 = disable , 1 = enable
-        // s->set_raw_gma(s, 1);         // 0 = disable , 1 = enable
-        // s->set_lenc(s, 1);            // 0 = disable , 1 = enable
-        // s->set_hmirror(s, 0);         // 0 = disable , 1 = enable
-        // s->set_vflip(s, 0);           // 0 = disable , 1 = enable
-        // s->set_dcw(s, 1);             // 0 = disable , 1 = enable
-        // s->set_colorbar(s, 0);        // 0 = disable , 1 = enable
-        initSuccess = true;
+      ESP.restart();
     }
+  }
+  else
+  {
+    Serial.println("Camera init succeeded");
 
-    // get mean intensities
-    camera_fb_t *fb = NULL;
-    for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
+    // Get a reference to the sensor
+    sensor_t *s = esp_camera_sensor_get();
+
+    // Dump camera module, warn for unsupported modules.
+    sensorPID = s->id.PID;
+    switch (sensorPID)
     {
-        // FIXME: Look at the buffer for the camera => flush vs. return
-        log_d("Capturing dummy frame %i", iDummyFrame);
-        fb = esp_camera_fb_get();
-        if (!fb)
-            log_e("Camera frame error", false);
-        esp_camera_fb_return(fb);
-
-        int mean_intensity = get_mean_intensity(fb);
-
-        Serial.print("Mean intensity: ");
-        Serial.println(mean_intensity);
+    case OV9650_PID:
+      Serial.println("WARNING: OV9650 camera module is not properly supported, will fallback to OV2640 operation");
+      break;
+    case OV7725_PID:
+      Serial.println("WARNING: OV7725 camera module is not properly supported, will fallback to OV2640 operation");
+      break;
+    case OV2640_PID:
+      Serial.println("OV2640 camera module detected");
+      break;
+    case OV3660_PID:
+      Serial.println("OV3660 camera module detected");
+      break;
+    default:
+      Serial.println("WARNING: Camera module is unknown and not properly supported, will fallback to OV2640 operation");
     }
-    // We now have camera with default init
-    return initSuccess;
+
+    // OV3660 initial sensors are flipped vertically and colors are a bit saturated
+    if (sensorPID == OV3660_PID)
+    {
+      s->set_vflip(s, 1);       // flip it back
+      s->set_brightness(s, 1);  // up the blightness just a bit
+      s->set_saturation(s, -2); // lower the saturation
+    }
+
+    /*
+     * Add any other defaults you want to apply at startup here:
+     * uncomment the line and set the value as desired (see the comments)
+     *
+     * these are defined in the esp headers here:
+     * https://github.com/espressif/esp32-camera/blob/master/driver/include/sensor.h#L149
+     */
+
+    // s->set_framesize(s, FRAMESIZE_SVGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
+    // s->set_quality(s, val);       // 10 to 63
+    // s->set_brightness(s, 0);      // -2 to 2
+    // s->set_contrast(s, 0);        // -2 to 2
+    // s->set_saturation(s, 0);      // -2 to 2
+    // s->set_special_effect(s, 0);  // 0 to 6 (0 - No Effect, 1 - Negative, 2 - Grayscale, 3 - Red Tint, 4 - Green Tint, 5 - Blue Tint, 6 - Sepia)
+    // s->set_whitebal(s, 1);        // aka 'awb' in the UI; 0 = disable , 1 = enable
+    // s->set_awb_gain(s, 1);        // 0 = disable , 1 = enable
+    // s->set_wb_mode(s, 0);         // 0 to 4 - if awb_gain enabled (0 - Auto, 1 - Sunny, 2 - Cloudy, 3 - Office, 4 - Home)
+    // s->set_exposure_ctrl(s, 1);   // 0 = disable , 1 = enable
+    // s->set_aec2(s, 0);            // 0 = disable , 1 = enable
+    // s->set_ae_level(s, 0);        // -2 to 2
+    // s->set_aec_value(s, 300);     // 0 to 1200
+    // s->set_gain_ctrl(s, 1);       // 0 = disable , 1 = enable
+    // s->set_agc_gain(s, 0);        // 0 to 30
+    // s->set_gainceiling(s, (gainceiling_t)0);  // 0 to 6
+    // s->set_bpc(s, 0);             // 0 = disable , 1 = enable
+    // s->set_wpc(s, 1);             // 0 = disable , 1 = enable
+    // s->set_raw_gma(s, 1);         // 0 = disable , 1 = enable
+    // s->set_lenc(s, 1);            // 0 = disable , 1 = enable
+    // s->set_hmirror(s, 0);         // 0 = disable , 1 = enable
+    // s->set_vflip(s, 0);           // 0 = disable , 1 = enable
+    // s->set_dcw(s, 1);             // 0 = disable , 1 = enable
+    // s->set_colorbar(s, 0);        // 0 = disable , 1 = enable
+    initSuccess = true;
+  }
+
+  // get mean intensities
+  camera_fb_t *fb = NULL;
+  for (int iDummyFrame = 0; iDummyFrame < 5; iDummyFrame++)
+  {
+    // FIXME: Look at the buffer for the camera => flush vs. return
+    log_d("Capturing dummy frame %i", iDummyFrame);
+    fb = esp_camera_fb_get();
+    if (!fb)
+      log_e("Camera frame error", false);
+    esp_camera_fb_return(fb);
+
+    int mean_intensity = get_mean_intensity(fb);
+
+    Serial.print("Mean intensity: ");
+    Serial.println(mean_intensity);
+  }
+  // We now have camera with default init
+  return initSuccess;
 }
 
 int get_mean_intensity(camera_fb_t *fb)
 {
-    uint8_t *pixels = fb->buf;
-    int num_pixels = fb->width * fb->height;
+  uint8_t *pixels = fb->buf;
+  int num_pixels = fb->width * fb->height;
 
-    float sum_intensity = 0.;
-    for (int i = 0; i < num_pixels; i++)
-    {
-        sum_intensity += pixels[i];
-    }
-    int mean_intensity = sum_intensity / num_pixels;
+  float sum_intensity = 0.;
+  for (int i = 0; i < num_pixels; i++)
+  {
+    sum_intensity += pixels[i];
+  }
+  int mean_intensity = sum_intensity / num_pixels;
 
-    return mean_intensity;
+  return mean_intensity;
 }
 
 void setup()
 {
-    // Start Serial
-    Serial.begin(115200);
+  // Start Serial
+  Serial.begin(115200);
 
-    delay(500);
-    Serial.println("...............");
-    // start wifi AP or connect to AP
-    initWifi();
+  delay(500);
+  Serial.println("...............");
+  // start wifi AP or connect to AP
+  initWifi();
 
-    // propagate URLs to GUI
-    calcURLs();
+  // propagate URLs to GUI
+  calcURLs();
 
-    // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
-    if (!psramFound())
+  // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
+  if (!psramFound())
+  {
+    Serial.println("\r\nFatal Error; Halting");
+    while (true)
     {
-        Serial.println("\r\nFatal Error; Halting");
-        while (true)
-        {
-            Serial.println("No PSRAM found; camera cannot be initialised: Please check the board config for your module.");
-            delay(5000);
-        }
+      Serial.println("No PSRAM found; camera cannot be initialised: Please check the board config for your module.");
+      delay(5000);
     }
+  }
 
-    // Start the SPIFFS filesystem before we initialise the camera
-    filesystemStart();
-    delay(500); // a short delay to let spi bus settle after SPIFFS init
+  bool success = Ping.ping(mqtt_server, 3);
 
-    // Start (init) the camera
-    bool camInitSuccess = StartCamera();
+  if (!success)
+  {
+    Serial.println("Ping failed");
+  }
+  else
+    Serial.println("Ping succesful.");
 
-    // FIXME: if not successfully initialized, either the cam is broken or we need to fully power it off..not possible yet??
-    if (not camInitSuccess)
-    {
-        log_e("Camera failed to initialize %i", camInitSuccess);
-        ESP.restart();
-    }
+  // Start the SPIFFS filesystem before we initialise the camera
+  filesystemStart();
+  delay(500); // a short delay to let spi bus settle after SPIFFS init
 
-    // actions done on first boot
-    bool isFirstRun = isFirstBoot();
-    if (isFirstRun)
-    {
-        // disable any Anglerfish-related settings
-        log_d("Remove SPIFFS");
-        removePrefs(SPIFFS);
+  // Start (init) the camera
+  bool camInitSuccess = StartCamera();
 
-        // set the default settings
-        log_d("Write Prefs to SPIFFS");
-        writePrefsToSSpiffs(SPIFFS);
+  // FIXME: if not successfully initialized, either the cam is broken or we need to fully power it off..not possible yet??
+  if (not camInitSuccess)
+  {
+    log_e("Camera failed to initialize %i", camInitSuccess);
+    ESP.restart();
+  }
 
-        // adjust compiled date to ensure next boot won't be detected as first boot
-        log_d("Set compiled date");
-        setCompiledDate(SPIFFS);
-    }
-    // declare LED PIN
-    pinMode(LED_PIN, OUTPUT);
+  // actions done on first boot
+  bool isFirstRun = isFirstBoot();
+  if (isFirstRun)
+  {
+    // disable any Anglerfish-related settings
+    log_d("Remove SPIFFS");
+    removePrefs(SPIFFS);
 
-    // initialize SD card before LED!!
-    // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
-    // with a different pin mode.
-    // 1-bit mode as suggested here:https://dr-mntn.net/2021/02/using-the-sd-card-in-1-bit-mode-on-the-esp32-cam-from-ai-thinker
+    // set the default settings
+    log_d("Write Prefs to SPIFFS");
+    writePrefsToSSpiffs(SPIFFS);
 
-    // loading previous settings
-    imagesServed = getFrameIndex(SPIFFS);
+    // adjust compiled date to ensure next boot won't be detected as first boot
+    log_d("Set compiled date");
+    setCompiledDate(SPIFFS);
+  }
+  // declare LED PIN
+  pinMode(LED_PIN, OUTPUT);
 
-    // Now load and apply any saved preferences
-    if (filesystem)
-    {
-        delay(200); // a short delay to let spi bus settle after camera init
-        loadSpiffsToPrefs(SPIFFS);
-        Serial.println("internal files System found and mounted");
-    }
-    else
-    {
-        Serial.println("No Internal Filesystem, cannot load or save preferences");
-    }
+  // initialize SD card before LED!!
+  // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
+  // with a different pin mode.
+  // 1-bit mode as suggested here:https://dr-mntn.net/2021/02/using-the-sd-card-in-1-bit-mode-on-the-esp32-cam-from-ai-thinker
 
-    // MDNS Config -- note that if OTA is NOT enabled this needs prior steps!
-    MDNS.addService("http", "tcp", 80);
-    Serial.println("Added HTTP service to MDNS server");
+  // loading previous settings
+  imagesServed = getFrameIndex(SPIFFS);
 
-    // Start the camera server
-    startCameraServer(httpPort, streamPort);
+  // Now load and apply any saved preferences
+  if (filesystem)
+  {
+    delay(200); // a short delay to let spi bus settle after camera init
+    loadSpiffsToPrefs(SPIFFS);
+    Serial.println("internal files System found and mounted");
+  }
+  else
+  {
+    Serial.println("No Internal Filesystem, cannot load or save preferences");
+  }
 
-    if (critERR.length() == 0)
-    {
-        Serial.printf("\r\nCamera Ready!\r\nUse '%s' to connect\r\n", httpURL);
-        Serial.printf("Stream viewer available at '%sview'\r\n", streamURL);
-        Serial.printf("Raw stream URL is '%s'\r\n", streamURL);
-    }
-    else
-    {
-        Serial.printf("\r\nCamera unavailable due to initialisation errors.\r\n\r\n");
-    }
+  // MDNS Config -- note that if OTA is NOT enabled this needs prior steps!
+  MDNS.addService("http", "tcp", 80);
+  Serial.println("Added HTTP service to MDNS server");
 
-    /***** OTA *****/
-    Serial.println("Setting up OTA");
-    // Port defaults to 3232
-    // ArduinoOTA.setPort(3232);
-    // Hostname defaults to esp3232-[MAC]
-    ArduinoOTA.setHostname(mdnsName);
-    // No authentication by default
-    ArduinoOTA.onStart([]()
-                       {
+  // Start the camera server
+  startCameraServer(httpPort, streamPort);
+
+  if (critERR.length() == 0)
+  {
+    Serial.printf("\r\nCamera Ready!\r\nUse '%s' to connect\r\n", httpURL);
+    Serial.printf("Stream viewer available at '%sview'\r\n", streamURL);
+    Serial.printf("Raw stream URL is '%s'\r\n", streamURL);
+  }
+  else
+  {
+    Serial.printf("\r\nCamera unavailable due to initialisation errors.\r\n\r\n");
+  }
+
+  /***** OTA *****/
+  Serial.println("Setting up OTA");
+  // Port defaults to 3232
+  // ArduinoOTA.setPort(3232);
+  // Hostname defaults to esp3232-[MAC]
+  ArduinoOTA.setHostname(mdnsName);
+  // No authentication by default
+  ArduinoOTA.onStart([]()
+                     {
                 String type;
                 if (ArduinoOTA.getCommand() == U_FLASH)
                     type = "sketch";
@@ -509,124 +520,171 @@ void setup()
                 esp_err_t err = esp_camera_deinit();
                 critERR = "<h1>OTA Has been started</h1><hr><p>Camera has Halted!</p>";
                 critERR += "<p>Wait for OTA to finish and reboot, or <a href=\"control?var=reboot&val=0\" title=\"Reboot Now (may interrupt OTA)\">reboot manually</a> to recover</p>"; })
-        .onEnd([]()
-               { Serial.println("\r\nEnd"); })
-        .onProgress([](unsigned int progress, unsigned int total)
-                    { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
-        .onError([](ota_error_t error)
-                 {
+      .onEnd([]()
+             { Serial.println("\r\nEnd"); })
+      .onProgress([](unsigned int progress, unsigned int total)
+                  { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
+      .onError([](ota_error_t error)
+               {
                 Serial.printf("Error[%u]: ", error);
                 if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
                 else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
                 else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
                 else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
                 else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
-    ArduinoOTA.begin();
+  ArduinoOTA.begin();
 
-    // get the unique ID of the device
-    // Retrieve the MAC address
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
+  // get the unique ID of the device
+  // Retrieve the MAC address
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
 
-    // Convert the MAC address to a 5-digit integer
-    uniqueID = macToID(mac);
+  // Convert the MAC address to a 5-digit integer
+  uniqueID = macToID(mac);
 
-    Serial.print("Unique ID: ");
-    Serial.println(uniqueID);
+  Serial.print("Unique ID: ");
+  Serial.println(uniqueID);
 
-    // set MQTT callback
-    client.setServer(mqtt_server, 1883);
-    client.setCallback(callback);
-}
+  // set MQTT callback
+  client.setServer(mqtt_server, 1883);
+  client.setCallback(callback);
 
-int WIFI_WATCHDOG = 15000;
-int T_SEND_MQTT_ID = 5000; // every 5s
-uint32_t T_last_mqtt = millis();
-void loop()
-{
-    // send MQTT singal every T_SEND_MQTT_ID-seconds
-    if (millis() - T_last_mqtt > T_SEND_MQTT_ID)
+  // Connect to MQTT broker
+  while (!client.connected())
+  {
+    Serial.println("Connecting to MQTT broker...");
+    if (client.connect("ESP32Client"))
     {
-        T_last_mqtt = millis();
-        // publish the unique ID and IP Address in one string
-        char message[50];
-        sprintf(message, "%d.%d.%d.%d:%d", ip[0], ip[1], ip[2], ip[3], httpPort);
-        Serial.println(String(uniqueID) + message);
-        client.publish("IP/ID", "TEST");
-        
-    }
-    // client mode can fail; so reconnect as appropriate
-    static bool warned = false;
-    if (WiFi.status() == WL_CONNECTED)
-    {
-        // We are connected, wait a bit and re-check
-        if (warned)
-        {
-            // Tell the user if we have just reconnected
-            Serial.println("WiFi reconnected");
-            warned = false;
-        }
-        // loop here for WIFI_WATCHDOG, turning debugData true/false depending on serial input..
-        unsigned long start = millis();
-        while (millis() - start < WIFI_WATCHDOG)
-        {
-            ArduinoOTA.handle();
-            delay(100);
-        }
+      Serial.println("Connected to MQTT broker");
+      client.subscribe("esp32/output");
+      client.subscribe("IP/ID");
     }
     else
     {
-        // disconnected; attempt to reconnect
-        if (!warned)
-        {
-            // Tell the user if we just disconnected
-            WiFi.disconnect(); // ensures disconnect is complete, wifi scan cleared
-            Serial.println("WiFi disconnected, retrying");
-            warned = true;
-        }
-        initWifi();
+      Serial.print("MQTT connection failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" Retrying in 5 seconds...");
+      delay(5000);
     }
+  }
+}
+
+int WIFI_WATCHDOG = 15000;
+int T_SEND_MQTT_ID = 10; // every 5s
+uint32_t T_last_mqtt = millis();
+void loop()
+{
+
+  if (!client.connected())
+  {
+    reconnectMQTT();
+  }
+
+  // send MQTT singal every T_SEND_MQTT_ID-seconds
+  if (millis() - T_last_mqtt > T_SEND_MQTT_ID)
+  {
+    T_last_mqtt = millis();
+    // publish the unique ID and IP Address in one string
+    char message[50];
+    sprintf(message, "%d.%d.%d.%d:%d", ip[0], ip[1], ip[2], ip[3], httpPort);
+    Serial.println(String(uniqueID) + message);
+    client.publish("IP/ID", "TEST");
+  }
+  // client mode can fail; so reconnect as appropriate
+  static bool warned = false;
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    // We are connected, wait a bit and re-check
+    if (warned)
+    {
+      // Tell the user if we have just reconnected
+      Serial.println("WiFi reconnected");
+      warned = false;
+    }
+    // loop here for WIFI_WATCHDOG, turning debugData true/false depending on serial input..
+    unsigned long start = millis();
+    while (millis() - start < WIFI_WATCHDOG)
+    {
+      ArduinoOTA.handle();
+      delay(100);
+    }
+  }
+  else
+  {
+    // disconnected; attempt to reconnect
+    if (!warned)
+    {
+      // Tell the user if we just disconnected
+      WiFi.disconnect(); // ensures disconnect is complete, wifi scan cleared
+      Serial.println("WiFi disconnected, retrying");
+      warned = true;
+    }
+    initWifi();
+  }
+}
+
+void reconnectMQTT()
+{
+  // Loop until we're reconnected
+  while (!client.connected())
+  {
+    Serial.print("Attempting MQTT connection...");
+    // Attempt to connect
+    if (client.connect("ESP32"))
+    {
+      Serial.println("connected");
+      // Subscribe
+      client.subscribe("esp32/output");
+      client.subscribe("IP/ID");
+    }
+    else
+    {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(500);
+    }
+  }
 }
 
 // Function to convert MAC address to a 5-digit integer
 unsigned int macToID(uint8_t mac[])
 {
-    unsigned int id = ((mac[0] << 8) | mac[1]) ^ ((mac[2] << 8) | mac[3]) ^ (mac[4] << 8);
-    id %= 90000; // Limit the ID to 5 digits
-    id += 10000; // Ensure a 5-digit ID
-    return id;
+  unsigned int id = ((mac[0] << 8) | mac[1]) ^ ((mac[2] << 8) | mac[3]) ^ (mac[4] << 8);
+  id %= 90000; // Limit the ID to 5 digits
+  id += 10000; // Ensure a 5-digit ID
+  return id;
 }
 
 void callback(char *topic, byte *message, unsigned int length)
 {
-    Serial.print("Message arrived on topic: ");
-    Serial.print(topic);
-    Serial.print(". Message: ");
-    String messageTemp;
+  Serial.print("Message arrived on topic: ");
+  Serial.print(topic);
+  Serial.print(". Message: ");
+  String messageTemp;
 
-    for (int i = 0; i < length; i++)
+  for (int i = 0; i < length; i++)
+  {
+    Serial.print((char)message[i]);
+    messageTemp += (char)message[i];
+  }
+  Serial.println();
+
+  // Feel free to add more if statements to control more GPIOs with MQTT
+
+  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off".
+  // Changes the output state according to the message
+  if (String(topic) == "esp32/output")
+  {
+    Serial.print("Changing output to ");
+    if (messageTemp == "on")
     {
-        Serial.print((char)message[i]);
-        messageTemp += (char)message[i];
+      Serial.println("on");
     }
-    Serial.println();
-
-    // Feel free to add more if statements to control more GPIOs with MQTT
-
-    // If a message is received on the topic esp32/output, you check if the message is either "on" or "off".
-    // Changes the output state according to the message
-    if (String(topic) == "esp32/output")
+    else if (messageTemp == "off")
     {
-        Serial.print("Changing output to ");
-        if (messageTemp == "on")
-        {
-            Serial.println("on");
-            
-        }
-        else if (messageTemp == "off")
-        {
-            Serial.println("off");
-            
-        }
+      Serial.println("off");
     }
+  }
 }
