@@ -37,7 +37,8 @@ uint32_t uniqueID = 0;
 camera_config_t config;
 
 // MQTT stuff
-const char* mqtt_server = "YOUR_MQTT_BROKER_IP_ADDRESS";
+const char *mqtt_server = "192.168.2.191";
+WiFiClient espClient;
 PubSubClient client(espClient);
 long lastMsg = 0;
 char msg[50];
@@ -83,8 +84,8 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "omniscope"; // default values
-const char *mpassword = "omniscope";
+const char *mssid = "BenMur";         //"omniscope"; // default values
+const char *mpassword = "MurBen3128"; //"omniscope";
 
 // DNS server
 const byte DNS_PORT = 53;
@@ -203,37 +204,6 @@ void calcURLs()
 bool StartCamera()
 {
     bool initSuccess = false;
-#if defined(CAMERA_MODEL_AI_THINKER)
-
-    // Populate camera config structure with hardware and other defaults
-    config.ledc_channel = LEDC_CHANNEL_0;
-    config.ledc_timer = LEDC_TIMER_0;
-    config.pin_d0 = Y2_GPIO_NUM;
-    config.pin_d1 = Y3_GPIO_NUM;
-    config.pin_d2 = Y4_GPIO_NUM;
-    config.pin_d3 = Y5_GPIO_NUM;
-    config.pin_d4 = Y6_GPIO_NUM;
-    config.pin_d5 = Y7_GPIO_NUM;
-    config.pin_d6 = Y8_GPIO_NUM;
-    config.pin_d7 = Y9_GPIO_NUM;
-    config.pin_xclk = XCLK_GPIO_NUM;
-    config.pin_pclk = PCLK_GPIO_NUM;
-    config.pin_vsync = VSYNC_GPIO_NUM;
-    config.pin_href = HREF_GPIO_NUM;
-    config.pin_sscb_sda = SIOD_GPIO_NUM;
-    config.pin_sscb_scl = SIOC_GPIO_NUM;
-    config.pin_pwdn = PWDN_GPIO_NUM;
-    config.pin_reset = RESET_GPIO_NUM;
-    config.xclk_freq_hz = xclk * 1000000;
-    config.pixel_format = PIXFORMAT_JPEG;
-    config.fb_location = CAMERA_FB_IN_PSRAM;
-
-    // Low(ish) default framesize and quality
-    config.frame_size = FRAMESIZE_SVGA;
-    config.grab_mode = CAMERA_GRAB_LATEST;
-    config.jpeg_quality = 12;
-    config.fb_count = 2;
-#elif defined(CAMERA_MODEL_XIAO)
     Serial.println("Xiao Sense Camera initialization");
     config.ledc_channel = LEDC_CHANNEL_0;
     config.ledc_timer = LEDC_TIMER_0;
@@ -279,11 +249,8 @@ bool StartCamera()
     {
         // Best option for face detection/recognition
         config.frame_size = FRAMESIZE_240X240;
-#if CONFIG_IDF_TARGET_ESP32S3
         config.fb_count = 2;
-#endif
     }
-#endif
 
     // camera init
     esp_err_t err = esp_camera_init(&config);
@@ -425,8 +392,6 @@ int get_mean_intensity(camera_fb_t *fb)
     return mean_intensity;
 }
 
-#define WIFI_SSID "Blynk"
-#define WIFI_PASS "12345678"
 void setup()
 {
     // Start Serial
@@ -529,7 +494,8 @@ void setup()
     // Hostname defaults to esp3232-[MAC]
     ArduinoOTA.setHostname(mdnsName);
     // No authentication by default
-    ArduinoOTA.onStart([]() {
+    ArduinoOTA.onStart([]()
+                       {
                 String type;
                 if (ArduinoOTA.getCommand() == U_FLASH)
                     type = "sketch";
@@ -542,56 +508,52 @@ void setup()
                 Serial.println("Stopping Camera");
                 esp_err_t err = esp_camera_deinit();
                 critERR = "<h1>OTA Has been started</h1><hr><p>Camera has Halted!</p>";
-                critERR += "<p>Wait for OTA to finish and reboot, or <a href=\"control?var=reboot&val=0\" title=\"Reboot Now (may interrupt OTA)\">reboot manually</a> to recover</p>";
-            })
-            .onEnd([]() {
-                Serial.println("\r\nEnd");
-            })
-            .onProgress([](unsigned int progress, unsigned int total) {
-                Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
-            })
-            .onError([](ota_error_t error) {
+                critERR += "<p>Wait for OTA to finish and reboot, or <a href=\"control?var=reboot&val=0\" title=\"Reboot Now (may interrupt OTA)\">reboot manually</a> to recover</p>"; })
+        .onEnd([]()
+               { Serial.println("\r\nEnd"); })
+        .onProgress([](unsigned int progress, unsigned int total)
+                    { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
+        .onError([](ota_error_t error)
+                 {
                 Serial.printf("Error[%u]: ", error);
                 if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
                 else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
                 else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
                 else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-                else if (error == OTA_END_ERROR) Serial.println("End Failed");
-            });
+                else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
     ArduinoOTA.begin();
-    
 
     // get the unique ID of the device
-      // Retrieve the MAC address
-  uint8_t mac[6];
-  WiFi.macAddress(mac);
+    // Retrieve the MAC address
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
 
-  // Convert the MAC address to a 5-digit integer
-  uniqueID = macToID(mac);
+    // Convert the MAC address to a 5-digit integer
+    uniqueID = macToID(mac);
 
-  Serial.print("Unique ID: ");
-  Serial.println(uniqueID);
+    Serial.print("Unique ID: ");
+    Serial.println(uniqueID);
 
-  // set MQTT callback
+    // set MQTT callback
     client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
-
-    
+    client.setCallback(callback);
 }
 
 int WIFI_WATCHDOG = 15000;
-int T_SEND_MQTT_ID = 5000; // every 5s 
+int T_SEND_MQTT_ID = 5000; // every 5s
 uint32_t T_last_mqtt = millis();
 void loop()
 {
     // send MQTT singal every T_SEND_MQTT_ID-seconds
-    if(millis() - T_last_mqtt > T_SEND_MQTT_ID){
+    if (millis() - T_last_mqtt > T_SEND_MQTT_ID)
+    {
         T_last_mqtt = millis();
-        // publish the unique ID and IP Address in one string 
+        // publish the unique ID and IP Address in one string
         char message[50];
         sprintf(message, "%d.%d.%d.%d:%d", ip[0], ip[1], ip[2], ip[3], httpPort);
-        client.publish("IP/ID", String(uniqueID)+message);
-
+        Serial.println(String(uniqueID) + message);
+        client.publish("IP/ID", "TEST");
+        
     }
     // client mode can fail; so reconnect as appropriate
     static bool warned = false;
@@ -627,38 +589,44 @@ void loop()
 }
 
 // Function to convert MAC address to a 5-digit integer
-unsigned int macToID(uint8_t mac[]) {
-  unsigned int id = ((mac[0] << 8) | mac[1]) ^ ((mac[2] << 8) | mac[3]) ^ (mac[4] << 8);
-  id %= 90000;  // Limit the ID to 5 digits
-  id += 10000;  // Ensure a 5-digit ID
-  return id;
+unsigned int macToID(uint8_t mac[])
+{
+    unsigned int id = ((mac[0] << 8) | mac[1]) ^ ((mac[2] << 8) | mac[3]) ^ (mac[4] << 8);
+    id %= 90000; // Limit the ID to 5 digits
+    id += 10000; // Ensure a 5-digit ID
+    return id;
 }
 
-void callback(char* topic, byte* message, unsigned int length) {
-  Serial.print("Message arrived on topic: ");
-  Serial.print(topic);
-  Serial.print(". Message: ");
-  String messageTemp;
-  
-  for (int i = 0; i < length; i++) {
-    Serial.print((char)message[i]);
-    messageTemp += (char)message[i];
-  }
-  Serial.println();
+void callback(char *topic, byte *message, unsigned int length)
+{
+    Serial.print("Message arrived on topic: ");
+    Serial.print(topic);
+    Serial.print(". Message: ");
+    String messageTemp;
 
-  // Feel free to add more if statements to control more GPIOs with MQTT
+    for (int i = 0; i < length; i++)
+    {
+        Serial.print((char)message[i]);
+        messageTemp += (char)message[i];
+    }
+    Serial.println();
 
-  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off". 
-  // Changes the output state according to the message
-  if (String(topic) == "esp32/output") {
-    Serial.print("Changing output to ");
-    if(messageTemp == "on"){
-      Serial.println("on");
-      digitalWrite(ledPin, HIGH);
+    // Feel free to add more if statements to control more GPIOs with MQTT
+
+    // If a message is received on the topic esp32/output, you check if the message is either "on" or "off".
+    // Changes the output state according to the message
+    if (String(topic) == "esp32/output")
+    {
+        Serial.print("Changing output to ");
+        if (messageTemp == "on")
+        {
+            Serial.println("on");
+            
+        }
+        else if (messageTemp == "off")
+        {
+            Serial.println("off");
+            
+        }
     }
-    else if(messageTemp == "off"){
-      Serial.println("off");
-      digitalWrite(ledPin, LOW);
-    }
-  }
 }
