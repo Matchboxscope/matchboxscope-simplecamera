@@ -17,7 +17,7 @@ H=240//2
 W=320//2
 
 # Open the serial connection
-ser = serial.Serial('/dev/cu.usbmodem11101', 100000, timeout=.3)  # Adjust the port and baud rate accordingly
+ser = serial.Serial('/dev/cu.usbmodem1101', 100000, timeout=.3)  # Adjust the port and baud rate accordingly
 
 
 
@@ -70,8 +70,8 @@ while(1):
         plt.subplot(122), plt.plot(np.array(allMeasurements)), plt.show()
 #        plt.imsave('test.png', matrix)
     
-        
-  #%%  
+'''
+#%%  
 #include "esp_camera.h"
 
 #define FRAME_SIZE FRAMESIZE_QVGA
@@ -392,3 +392,4 @@ void print_frame(uint16_t frame[H][W])
         Serial.println();
     }
 }
+'''        
