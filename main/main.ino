@@ -1025,26 +1025,29 @@ void initAnglerfish(bool isTimelapseAnglerfish)
         setLamp(lampVal * autoLamp);
 
         // Save image to SD card
-        Serial.println("1");
         uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;
-        Serial.println("2");
+        
         // FIXME: decide which method to use..
         setFrameIndex(SPIFFS, frameIndex);
-        Serial.println("3");
         // Get the compile date and time as a string
         String compileDate = String(__DATE__) + " " + String(__TIME__);
         // Remove spaces and colons from the compile date and time string
         compileDate.replace(" ", "_");
         compileDate.replace(":", "");
-        Serial.println("1");
+        
 
         int stepSize = 2;
         int stepMin = 270;
         int stepMax = 296;
         bool isAcquireStack = getAcquireStack(SPIFFS);
+        if (isAcquireStack){
+            stepMin = 0;
+            stepMax = 1;
+            stepSize = 2;
+        }
 
         long time1 = millis();
-        for (int iFocus = stepMin; iFocus < isAcquireStack*stepMax; iFocus += stepSize){
+        for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize){
             String folderName = "/"+String(imagesServed);
             // FIXME: If we save single files to the SD card, the time to store them growth with every file
             // workaround for now: We store them in a folders 
