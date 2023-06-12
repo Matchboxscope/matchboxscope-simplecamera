@@ -13,8 +13,6 @@
 #include "esp_bt.h"
 #include "esp_gap_ble_api.h"
 #include "improv.h"
-#include "PubSubClient.h"
-#include <ESP32Ping.h>
 
 // camera configuration
 #define CAM_NAME "Omniscope"
@@ -36,15 +34,6 @@ uint32_t uniqueID = 0;
 
 // Camera config structure
 camera_config_t config;
-
-// MQTT stuff
-const char *mqtt_server = "mqtt://test.mosquitto.org/";
-//#define MQTT_SOCKET_TIMEOUT 1
-WiFiClient espClient;
-PubSubClient client(espClient);
-long lastMsg = 0;
-char msg[50];
-int value = 0;
 
 // Internal filesystem (SPIFFS)
 // used for non-volatile camera settings
@@ -86,8 +75,8 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "Blynk";        //"omniscope"; // default values
-const char *mpassword = "12345678"; //"omniscope";
+const char *mssid = "omniscope"; // default values
+const char *mpassword = "omniscope";
 
 // DNS server
 const byte DNS_PORT = 53;
@@ -418,14 +407,6 @@ void setup()
     }
   }
 
-  bool success = Ping.ping(mqtt_server, 3);
-
-  if (!success)
-  {
-    Serial.println("Ping failed");
-  }
-  else
-    Serial.println("Ping succesful.");
 
   // Start the SPIFFS filesystem before we initialise the camera
   filesystemStart();
@@ -544,52 +525,12 @@ void setup()
 
   Serial.print("Unique ID: ");
   Serial.println(uniqueID);
-
-  // set MQTT callback
-  client.setServer(mqtt_server, 1883);
-  client.setCallback(callback);
-
-  // Connect to MQTT broker
-  while (!client.connected())
-  {
-    Serial.println("Connecting to MQTT broker...");
-    if (client.connect("ESP32Client"))
-    {
-      Serial.println("Connected to MQTT broker");
-      client.subscribe("esp32/output");
-      client.subscribe("IP/ID");
-    }
-    else
-    {
-      Serial.print("MQTT connection failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" Retrying in 5 seconds...");
-      delay(5000);
-    }
-  }
 }
 
+
 int WIFI_WATCHDOG = 15000;
-int T_SEND_MQTT_ID = 10; // every 5s
-uint32_t T_last_mqtt = millis();
 void loop()
 {
-
-  if (!client.connected())
-  {
-    reconnectMQTT();
-  }
-
-  // send MQTT singal every T_SEND_MQTT_ID-seconds
-  if (millis() - T_last_mqtt > T_SEND_MQTT_ID)
-  {
-    T_last_mqtt = millis();
-    // publish the unique ID and IP Address in one string
-    char message[50];
-    sprintf(message, "%d.%d.%d.%d:%d", ip[0], ip[1], ip[2], ip[3], httpPort);
-    Serial.println(String(uniqueID) + message);
-    client.publish("IP/ID", "TEST");
-  }
   // client mode can fail; so reconnect as appropriate
   static bool warned = false;
   if (WiFi.status() == WL_CONNECTED)
@@ -623,31 +564,6 @@ void loop()
   }
 }
 
-void reconnectMQTT()
-{
-  // Loop until we're reconnected
-  while (!client.connected())
-  {
-    Serial.print("Attempting MQTT connection...");
-    // Attempt to connect
-    if (client.connect("ESP32"))
-    {
-      Serial.println("connected");
-      // Subscribe
-      client.subscribe("esp32/output");
-      client.subscribe("IP/ID");
-    }
-    else
-    {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(500);
-    }
-  }
-}
-
 // Function to convert MAC address to a 5-digit integer
 unsigned int macToID(uint8_t mac[])
 {
@@ -655,36 +571,4 @@ unsigned int macToID(uint8_t mac[])
   id %= 90000; // Limit the ID to 5 digits
   id += 10000; // Ensure a 5-digit ID
   return id;
-}
-
-void callback(char *topic, byte *message, unsigned int length)
-{
-  Serial.print("Message arrived on topic: ");
-  Serial.print(topic);
-  Serial.print(". Message: ");
-  String messageTemp;
-
-  for (int i = 0; i < length; i++)
-  {
-    Serial.print((char)message[i]);
-    messageTemp += (char)message[i];
-  }
-  Serial.println();
-
-  // Feel free to add more if statements to control more GPIOs with MQTT
-
-  // If a message is received on the topic esp32/output, you check if the message is either "on" or "off".
-  // Changes the output state according to the message
-  if (String(topic) == "esp32/output")
-  {
-    Serial.print("Changing output to ");
-    if (messageTemp == "on")
-    {
-      Serial.println("on");
-    }
-    else if (messageTemp == "off")
-    {
-      Serial.println("off");
-    }
-  }
 }

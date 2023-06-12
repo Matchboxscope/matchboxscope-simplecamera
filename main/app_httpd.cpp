@@ -47,6 +47,7 @@ camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename);
 
 // External variables declared in the main .ino
+extern uint32_t uniqueID;
 extern char myName[];
 extern char myVer[];
 extern IPAddress ip;
@@ -168,8 +169,6 @@ static esp_err_t capture_handler(httpd_req_t *req)
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
-    log_d("Acquire second frame");
-    // camera_fb_t* fb = convolution(fb_);
 
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
@@ -187,17 +186,10 @@ static esp_err_t capture_handler(httpd_req_t *req)
         Serial.println("Capture Error: Non-JPEG image returned by camera module");
     }
     esp_camera_fb_return(fb);
-    // esp_camera_fb_return(fb_);
     fb = NULL;
-
-    // save to SD card if existent
-    String filename = "/image" + String(imagesServed) + ".jpg";
-    saveImage(filename);
 
     int64_t fr_end = esp_timer_get_time();
     Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
-    imagesServed++;
-    setFrameIndex(SPIFFS, imagesServed);
 
     return res;
 }
@@ -673,7 +665,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"rotate\":\"%d\",", myRotation);
         p += sprintf(p, "\"stream_url\":\"%s\",", streamURL);
         // p += sprintf(p, "\"compiled_date\":%llu,", compileDate);
-        p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
+        p += sprintf(p, "\"omniscope\":\"%u\"", uniqueID);
     }
     *p++ = '}';
     *p++ = 0;
