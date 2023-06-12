@@ -89,7 +89,7 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "Blynk1"; // default values
+const char *mssid = "Blynk"; // default values
 const char *mpassword = "12345678";
 
 #define WIFI_WATCHDOG 15000
