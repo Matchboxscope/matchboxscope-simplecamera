@@ -827,6 +827,8 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"sdcard\":%d,", sdInitialized);
         // p += sprintf(p, "\"compiled_date\":%llu,", compileDate);
         p += sprintf(p, "\"isStack\":\"%u\",", isStack);
+        p += sprintf(p, "\"imagesServed\":\"%u\",", imagesServed);
+        p += sprintf(p, "\"isTimelapseGeneral\":\"%u\",", isTimelapseGeneral);
         p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
     }
     *p++ = '}';
