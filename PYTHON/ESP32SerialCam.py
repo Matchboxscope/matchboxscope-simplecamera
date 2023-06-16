@@ -18,6 +18,7 @@ def connect_to_usb_device(manufacturer):
             try:
                 ser = serial.Serial(port.device, baudrate=2000000, timeout=1)
                 print(f"Connected to device: {port.description}")
+                ser.write_timeout = 1
                 return ser
             except serial.SerialException:
                 print(f"Failed to connect to device: {port.description}")
@@ -44,7 +45,9 @@ while True:
   try:
       #read image and decode
       #serialdevice.write(b"")
-      serialdevice.write((' ').encode())
+      serialdevice.write(('\n').encode())
+      # don't read to early
+      time.sleep(.05)
       #serialdevice.flushInput()
       #serialdevice.flushOutput()
       
@@ -67,7 +70,18 @@ while True:
   except Exception as e:
       print("Error")
       print(e)
+      serialdevice.flushInput()
+      serialdevice.flushOutput()
       iError += 1
+      #serialdevice.reset_input_buffer()
+      # reset device here
+      if False: #iError % 20:
+            try: serialdevice.close(); del serialdevice
+            except: pass
+            # Connect to the USB device
+            serialdevice = connect_to_usb_device(manufacturer)
+
+
       
     
 print(iError)
