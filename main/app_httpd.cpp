@@ -420,6 +420,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
         setLamp(0);
     Serial.println("Stream ended");
     last_frame = 0;
+    F_RDLCK = false; 
     return res;
 }
 
