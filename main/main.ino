@@ -13,11 +13,13 @@
 #include "esp_bt.h"
 #include "esp_gap_ble_api.h"
 #include "improv.h"
-
-
 #include "spinlock.h"
-
 #include "anglerfishcamsettings.h"
+
+
+#define NEOPIXEL
+#define NUMPIXELS 8
+
 
 // camera configuration
 #define CAM_NAME "Matchboxscope"
@@ -61,7 +63,7 @@ int sketchSize;
 int sketchSpace;
 String sketchMD5;
 
-int randomID = 0;
+String uniqueID = "0";
 
 // Start with accesspoint mode disabled, wifi setup will activate it if
 // no known networks are found, and WIFI_AP_ENABLE has been defined
@@ -92,8 +94,13 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "Blynk"; // default values
+const char *mssid = "Blynk_"; // default values
 const char *mpassword = "12345678";
+
+#ifdef NEOPIXEL
+#include <Adafruit_NeoPixel.h>
+Adafruit_NeoPixel pixels(NUMPIXELS, PWM_PIN, NEO_GRB + NEO_KHZ800);
+#endif
 
 #define WIFI_WATCHDOG 15000
 
@@ -256,6 +263,12 @@ void setLamp(int newVal)
 // PWM Control
 void setPWM(int newVal)
 {
+  #ifdef NEOPIXEL
+    for(int i=0; i<NUMPIXELS; i++) { 
+    pixels.setPixelColor(i, pixels.Color(newVal, newVal, newVal));
+    }
+    pixels.show();   // Send the updated pixel colors to the hardware.
+  #else
   if (newVal != -1)
   {
     // Apply a logarithmic function to the scale.
@@ -266,6 +279,36 @@ void setPWM(int newVal)
     Serial.print("%, pwm = ");
     Serial.println(current);
   }
+  #endif
+}
+
+String getThreeDigitID() {
+  uint8_t mac[6];
+  char macStr[18];
+  
+  // Get the MAC address of the ESP32
+  WiFi.macAddress(mac);
+  Serial.print("MAC address: ");
+  Serial.println(WiFi.macAddress());
+  // Format the MAC address as a string
+  snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X", mac[3], mac[4], mac[5]);
+  
+  // Extract the last 3 characters from the MAC address string
+  String lastThreeChars = String(macStr + 15);
+  
+  // Convert the last 3 characters to an integer
+  int id = lastThreeChars.toInt();
+  Serial.println("ID: " + String(id));
+  // Limit the ID to three digits by taking modulo 1000
+  id %= 1000;
+  
+  // Convert the ID back to a string and pad it with leading zeros if necessary
+  String idStr = String(id);
+  while (idStr.length() < 3) {
+    idStr = "0" + idStr;
+  }
+  
+  return idStr;
 }
 
 void initWifi()
@@ -278,8 +321,8 @@ void initWifi()
   String mssid_tmp = getWifiSSID(SPIFFS);
   String mpassword_tmp = getWifiPW(SPIFFS);
 
-  randomID = random(100);
-  String ssid = "Matchboxscope-" + String(randomID, HEX);
+  uniqueID = getThreeDigitID();
+  String ssid = "Matchboxscope-" + uniqueID;
 
   // if mssid_tmp is "" open access point
   if (mssid_tmp == "")
@@ -289,7 +332,7 @@ void initWifi()
     WiFi.mode(WIFI_AP);
     WiFi.softAP(ssid.c_str(), "");
     /*Doesn'T make sense to do this 100x
-    for (int iBlink = 0; iBlink < randomID; iBlink++)
+    for (int iBlink = 0; iBlink < uniqueID; iBlink++)
     {
         setLamp(100);
         delay(50);
@@ -325,7 +368,7 @@ void initWifi()
 
         // open Access Point with random ID
         WiFi.softAP(ssid.c_str(), "");
-        //blink_led(100, randomID);
+        //blink_led(100, uniqueID);
 
         Serial.println("Failed to connect to Wi-Fi => Creating AP");
         // Print the SSID to the serial monitor
@@ -680,6 +723,15 @@ void setup()
 {
   // Start Serial
   Serial.begin(115200);
+  #ifdef NEOPIXEL
+  for(int i=0; i<NUMPIXELS; i++) { 
+    pixels.setPixelColor(i, pixels.Color(255, 255, 255));pixels.show(); // white
+  } delay(60);
+  for(int i=0; i<NUMPIXELS; i++) { 
+    pixels.setPixelColor(i, pixels.Color(0, 0, 0));pixels.show(); // white
+  } delay(60);
+  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
+  #endif
 
   // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
   if (!psramFound())
@@ -844,6 +896,8 @@ void setup()
   else
     setLamp(lampVal);
 
+  
+  #ifndef NEOPIXEL
   // Initialise and set the PWM output
   pinMode(PWM_PIN, OUTPUT);
   log_d("PWM pin: %d", PWM_PIN);
@@ -852,6 +906,7 @@ void setup()
   ledcWrite(pwmChannel, 255);                    // set default value to center so that focus or pump are in ground state
   delay(30);
   ledcWrite(pwmChannel, 0); // set default value to center so that focus or pump are in ground state
+  #endif 
 
   // test LEDs
   // visualize we are "on"
@@ -953,7 +1008,7 @@ void loop()
     // turns on lamp automatically
     // save to SD card if existent
 
-    String filename = "/timelapse_image_scope_" + String(randomID) +"_" + String(millis()) + "_" + String(imagesServed);
+    String filename = "/timelapse_image_scope_" + String(uniqueID) +"_" + String(millis()) + "_" + String(imagesServed);
     if (getAcquireStack(SPIFFS))
     { // FIXME: We could have a switch in the GUI for this settig
       // acquire a stack
