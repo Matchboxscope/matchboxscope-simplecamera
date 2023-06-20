@@ -26,15 +26,13 @@
 void grabImage();
 void cameraInit();
 
-
 void setup()
 {
   Serial.begin(BAUD_RATE);
-
+  Serial.setTimeout(20);
   cameraInit();
 }
 
-bool isCROP = false;
 int Nx = 320;
 int Ny = 240;
 int Nroi = 50;
@@ -42,72 +40,53 @@ int x = 320 / 2;
 int y = 240 / 2;
 bool isStreaming = true;
 
-void crop_image(camera_fb_t *fb, unsigned short cropLeft, unsigned short cropRight, unsigned short cropTop, unsigned short cropBottom)
-{
-  unsigned int maxTopIndex = cropTop * fb->width * 2;
-  unsigned int minBottomIndex = ((fb->width * fb->height) - (cropBottom * fb->width)) * 2;
-  unsigned short maxX = fb->width - cropRight; // In pixels
-  unsigned short newWidth = fb->width - cropLeft - cropRight;
-  unsigned short newHeight = fb->height - cropTop - cropBottom;
-  size_t newJpgSize = newWidth * newHeight * 2;
-
-  unsigned int writeIndex = 0;
-  // Loop over all bytes
-  for (int i = 0; i < fb->len; i += 2)
-  {
-    // Calculate current X, Y pixel position
-    int x = (i / 2) % fb->width;
-
-    // Crop from the top
-    if (i < maxTopIndex)
-    {
-      continue;
-    }
-
-    // Crop from the bottom
-    if (i > minBottomIndex)
-    {
-      continue;
-    }
-
-    // Crop from the left
-    if (x <= cropLeft)
-    {
-      continue;
-    }
-
-    // Crop from the right
-    if (x > maxX)
-    {
-      continue;
-    }
-
-    // If we get here, keep the pixels
-    fb->buf[writeIndex++] = fb->buf[i];
-    fb->buf[writeIndex++] = fb->buf[i + 1];
-  }
-
-  // Set the new dimensions of the framebuffer for further use.
-  fb->width = newWidth;
-  fb->height = newHeight;
-  fb->len = newJpgSize;
-}
-
+/* setting expsorue time: t1000 
+setting gain: g1
+getting frame: c */
 void loop()
 {
   // Check for incoming serial commands
   if (Serial.available() > 0)
   {
-    delay(50);
-    Serial.read(); // Read the incoming command until a newline character is encountered
-    grabImage();
-    // flush serial
-      while (Serial.available() > 0) {
-      char c = Serial.read();
-  }
+    String command = Serial.readString(); // Read the command until a newline character is received
+    
+    Serial.println(command);                       // Print the command (debugging  
+
+    if (command.length() > 1 && command.charAt(0) == 't')
+    {
+      // exposure time 
+      int value = command.substring(1).toInt(); // Extract the numeric part of the command and convert it to an integer
+      // Use the value as needed
+      // Apply manual settings for the camera
+      sensor_t *s = esp_camera_sensor_get();
+      s->set_gain_ctrl(s, 0);              // auto gain off (1 or 0)
+      s->set_exposure_ctrl(s, 0);          // auto exposure off (1 or 0)
+      s->set_aec_value(s, value);      // set exposure manually (0-1200)
+    }
+    else if (command.length() > 1 && command.charAt(0) == 'g')
+    {
+      // gain 
+      int value = command.substring(1).toInt(); // Extract the numeric part of the command and convert it to an integer
+
+      // Apply manual settings for the camera
+      sensor_t *s = esp_camera_sensor_get();
+      s->set_gain_ctrl(s, 0);              // auto gain off (1 or 0)
+      s->set_exposure_ctrl(s, 0);          // auto exposure off (1 or 0)
+      s->set_agc_gain(s, value);           // set gain manually (0 - 30)
 
     }
-  
+    else 
+    {
+      // capture image and return
+      grabImage();
+    }
+
+    // flush serial
+    while (Serial.available() > 0)
+    {
+      char c = Serial.read();
+    }
+  }
 }
 
 void cameraInit()
@@ -139,19 +118,11 @@ void cameraInit()
   config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
-  if (isCROP)
-  {
-    config.pixel_format = PIXFORMAT_RGB565;
-    config.frame_size = FRAMESIZE_SXGA;
-    config.fb_count = 2;
-  }
-  else
-  {
-    config.pixel_format = PIXFORMAT_JPEG;
-    config.frame_size = FRAMESIZE_QVGA; // for streaming}
 
-    config.fb_count = 1;
-  }
+  config.pixel_format = PIXFORMAT_JPEG;
+  config.frame_size = FRAMESIZE_QVGA; // for streaming}
+
+  config.fb_count = 1;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK)
@@ -167,53 +138,19 @@ void grabImage()
 {
 
   camera_fb_t *fb = esp_camera_fb_get();
-  if (isCROP)
+
+  if (!fb || fb->format != PIXFORMAT_JPEG)
   {
-
-    // Crop image (frame buffer, cropLeft, cropRight, cropTop, cropBottom)
-    unsigned short cropLeft = x - Nroi / 2;
-    unsigned short cropRight = x + Nroi / 2;
-    unsigned short cropTop = y - Nroi / 2;
-    unsigned short cropBottom = y + Nroi / 2;
-
-    crop_image(fb, 550, 450, 100, 190);
-    // crop_image(fb, cropLeft, cropRight, cropTop, cropBottom);
-    //  Create a buffer for the JPG in psram
-    uint8_t *jpg_buf = (uint8_t *)heap_caps_malloc(200000, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-
-    if (jpg_buf == NULL)
-    {
-      printf("Malloc failed to allocate buffer for JPG.\n");
-    }
-    else
-    {
-      size_t jpg_size = 0;
-
-      // Convert the RAW image into JPG
-      // The parameter "31" is the JPG quality. Higher is better.
-      fmt2jpg(fb->buf, fb->len, fb->width, fb->height, fb->format, 31, &jpg_buf, &jpg_size);
-      printf("Converted JPG size: %d bytes \n", jpg_size);
-      String encoded = base64::encode(jpg_buf, jpg_size);
-      Serial.write(encoded.c_str(), encoded.length());
-      Serial.println();
-    }
+    Serial.println("Failed to capture image");
   }
   else
   {
+    delay(40);
 
-    if (!fb || fb->format != PIXFORMAT_JPEG)
-    {
-      Serial.println("Failed to capture image");
-    }
-    else
-    {
-      delay(40);
-
-      String encoded = base64::encode(fb->buf, fb->len);
-      Serial.write(encoded.c_str(), encoded.length());
-      Serial.println();
-    }
-
-    esp_camera_fb_return(fb);
+    String encoded = base64::encode(fb->buf, fb->len);
+    Serial.write(encoded.c_str(), encoded.length());
+    Serial.println();
   }
+
+  esp_camera_fb_return(fb);
 }
