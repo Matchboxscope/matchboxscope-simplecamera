@@ -13,7 +13,19 @@
 #include "esp_bt.h"
 #include "esp_gap_ble_api.h"
 #include "improv.h"
-
+#include <HTTPClient.h>
+#include <Update.h>
+#include <esp_http_server.h>
+#include <WiFi.h>
+#include <Update.h>
+#include <ArduinoJson.h>
+#include <HTTPClient.h>
+#include <WiFi.h>
+#include <WiFiClientSecure.h>
+#include <base64.h>
+#include <Arduino.h>
+#include <WiFi.h>
+#include "WebServer.h"
 // camera configuration
 #define CAM_NAME "Omniscope"
 #define MDNS_NAME "Omniscope"
@@ -56,6 +68,8 @@ IPAddress ip;
 IPAddress net;
 IPAddress gw;
 bool is_accesspoint = false;
+
+WebServer OTAserver(82);
 
 // Declare external function from app_httpd.cpp
 extern void startCameraServer(int hPort, int sPort);
@@ -125,6 +139,8 @@ void initWifi()
   //  load SSID/PW from SPIFFS
   String mssid_tmp = getWifiSSID(SPIFFS);
   String mpassword_tmp = getWifiPW(SPIFFS);
+
+  scanNetworks();
 
   // try to connect to available Network
   log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
@@ -407,7 +423,6 @@ void setup()
     }
   }
 
-
   // Start the SPIFFS filesystem before we initialise the camera
   filesystemStart();
   delay(500); // a short delay to let spi bus settle after SPIFFS init
@@ -525,8 +540,10 @@ void setup()
 
   Serial.print("Unique ID: ");
   Serial.println(uniqueID);
-}
 
+  // OTA
+  startOTAServer();
+}
 
 int WIFI_WATCHDOG = 15000;
 void loop()
@@ -546,7 +563,7 @@ void loop()
     unsigned long start = millis();
     while (millis() - start < WIFI_WATCHDOG)
     {
-      ArduinoOTA.handle();
+      // ArduinoOTA.handle();
       delay(100);
     }
   }
@@ -562,6 +579,9 @@ void loop()
     }
     initWifi();
   }
+
+  // wait for incoming OTA client udpates
+  OTAserver.handleClient(); // FIXME: the OTA, "REST API" and stream run on 3 different ports - cause: me not being able to merge OTA and REST; STREAM shuold be independent to have a non-blockig experience
 }
 
 // Function to convert MAC address to a 5-digit integer
@@ -571,4 +591,136 @@ unsigned int macToID(uint8_t mac[])
   id %= 90000; // Limit the ID to 5 digits
   id += 10000; // Ensure a 5-digit ID
   return id;
+}
+
+/*
+OTA related stuff
+*/
+
+static const char PROGMEM otaindex[] = R"rawliteral(
+<!DOCTYPE HTML>
+<html>
+<p><span style="font-family: tahoma, arial, helvetica, sans-serif;">
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+</span></p>
+<form method="POST" action="#" enctype="multipart/form-data" id="upload_form">
+<h2><span style="font-family: tahoma, arial, helvetica, sans-serif;"><strong>OTA Updater for the Anglerfish</strong></span></h2>
+<p><span style="font-family: tahoma, arial, helvetica, sans-serif;">Please go to the<a href="https://github.com/matchboxscope/Matchboxscope/" title="URL" target="_blank" rel="noopener"> Github repository </a>of the Anglerfish and download the latest ".bin" file.&nbsp;&nbsp;</span><span style="font-family: tahoma, arial, helvetica, sans-serif;"></span></p>
+<p><span style="font-family: tahoma, arial, helvetica, sans-serif;"><input type="file" name="update" /> <input type="submit" value="Update" /></span></p>
+</form>
+<div id="prg"><span style="font-family: tahoma, arial, helvetica, sans-serif;"><em>Progress</em>: 0%</span></div>
+<p><span style="font-family: tahoma, arial, helvetica, sans-serif;">
+<script>
+  $('form').submit(function(e){
+  e.preventDefault();
+  var form = $('#upload_form')[0];
+  var data = new FormData(form);
+   $.ajax({
+  url: '/update',
+  type: 'POST',
+  data: data,
+  contentType: false,
+  processData:false,
+  xhr: function() {
+  var xhr = new window.XMLHttpRequest();
+  xhr.upload.addEventListener('progress', function(evt) {
+  if (evt.lengthComputable) {
+  var per = evt.loaded / evt.total;
+  $('#prg').html('progress: ' + Math.round(per*100) + '%');
+  }
+  }, false);
+  return xhr;
+  },
+  success:function(d, s) {
+  console.log('success!')
+ },
+ error: function (a, b, c) {
+ }
+ });
+ });
+ </script>
+</span></p>
+</html>
+)rawliteral";
+
+// OTA server
+void startOTAServer()
+{
+  /*return index page which is stored in serverIndex */
+
+  Serial.println("Spinning up OTA server");
+  OTAserver.on("/", HTTP_GET, []()
+               {
+                log_d("Moving into the OTA stuff");
+    OTAserver.sendHeader("Connection", "close");
+    OTAserver.send(200, "text/html", otaindex); });
+  /*handling uploading firmware file */
+  OTAserver.on(
+      "/update", HTTP_POST, []()
+      {
+        log_d("Starting the update");
+    OTAserver.sendHeader("Connection", "close");
+    OTAserver.send(200, "text/plain", (Update.hasError()) ? "FAIL" : "OK");
+    ESP.restart(); },
+      []()
+      {
+        HTTPUpload &upload = OTAserver.upload();
+        if (upload.status == UPLOAD_FILE_START)
+        {
+          Serial.printf("Update: %s\n", upload.filename.c_str());
+          if (!Update.begin(UPDATE_SIZE_UNKNOWN))
+          { // start with max available size
+            Update.printError(Serial);
+          }
+        }
+        else if (upload.status == UPLOAD_FILE_WRITE)
+        {
+          /* flashing firmware to ESP*/
+          if (Update.write(upload.buf, upload.currentSize) != upload.currentSize)
+          {
+            Update.printError(Serial);
+          }
+        }
+        else if (upload.status == UPLOAD_FILE_END)
+        {
+          if (Update.end(true))
+          { // true to set the size to the current progress
+            Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+          }
+          else
+          {
+            Update.printError(Serial);
+          }
+        }
+      });
+  OTAserver.begin();
+  Serial.println("Starting OTA server on port: '82'");
+  Serial.println("Visit http://IPADDRESS_SCOPE:82");
+}
+
+
+void scanNetworks() {
+// Scan for Wi-Fi networks
+  int networkCount = WiFi.scanNetworks();
+  
+  if (networkCount == 0) {
+    Serial.println("No Wi-Fi networks found");
+  } else {
+    Serial.print("Found ");
+    Serial.print(networkCount);
+    Serial.println(" Wi-Fi networks:");
+    
+    for (int i = 0; i < networkCount; ++i) {
+      String ssid = WiFi.SSID(i);
+      int rssi = WiFi.RSSI(i);
+      int encryptionType = WiFi.encryptionType(i);
+      
+      Serial.print(i + 1);
+      Serial.print(": ");
+      Serial.print(ssid);
+      Serial.print(" Signal strength: ");
+      Serial.print(rssi);
+      Serial.println(" dBm");
+    }
+  }
 }

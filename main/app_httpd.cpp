@@ -321,6 +321,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
     streamCount = 0;
     Serial.println("Stream ended");
     last_frame = 0;
+    IS_STREAMING = false; 
     return res;
 }
 
