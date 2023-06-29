@@ -9,6 +9,7 @@
 #define SIOD_GPIO_NUM 40
 #define SIOC_GPIO_NUM 39
 
+
 #define Y9_GPIO_NUM 48
 #define Y8_GPIO_NUM 11
 #define Y7_GPIO_NUM 12
@@ -40,7 +41,7 @@ int x = 320 / 2;
 int y = 240 / 2;
 bool isStreaming = true;
 
-/* setting expsorue time: t1000 
+/* setting expsorue time: t1000
 setting gain: g1
 getting frame: c */
 void loop()
@@ -49,12 +50,12 @@ void loop()
   if (Serial.available() > 0)
   {
     String command = Serial.readString(); // Read the command until a newline character is received
-    
-    Serial.println(command);                       // Print the command (debugging  
+
+    Serial.println(command);                       // Print the command (debugging
 
     if (command.length() > 1 && command.charAt(0) == 't')
     {
-      // exposure time 
+      // exposure time
       int value = command.substring(1).toInt(); // Extract the numeric part of the command and convert it to an integer
       // Use the value as needed
       // Apply manual settings for the camera
@@ -65,7 +66,7 @@ void loop()
     }
     else if (command.length() > 1 && command.charAt(0) == 'g')
     {
-      // gain 
+      // gain
       int value = command.substring(1).toInt(); // Extract the numeric part of the command and convert it to an integer
 
       // Apply manual settings for the camera
@@ -75,7 +76,7 @@ void loop()
       s->set_agc_gain(s, value);           // set gain manually (0 - 30)
 
     }
-    else 
+    else
     {
       // capture image and return
       grabImage();
