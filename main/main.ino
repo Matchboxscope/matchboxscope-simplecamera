@@ -18,7 +18,7 @@
 
 
 #define NEOPIXEL
-#define NUMPIXELS 8
+#define NUMPIXELS 16
 
 
 // camera configuration
@@ -94,7 +94,7 @@ int httpPort = 80;
 int streamPort = 81;
 
 // settings for ssid/pw if updated from serial
-const char *mssid = "Blynk_"; // default values
+const char *mssid = "Blynk"; // default values
 const char *mpassword = "12345678";
 
 #ifdef NEOPIXEL
@@ -1021,7 +1021,8 @@ void loop()
     {
       // Acquire the image and save
       imagesServed++;
-      saveImage(filename, 0);
+      int pwmVal = getPWMVal(SPIFFS);
+      saveImage(filename, pwmVal);
     }
 
     // set default lamp value for streaming

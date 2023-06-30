@@ -699,6 +699,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     else if (!strcmp(variable, "pwm") && (pwmVal != -1))
     {
         pwmVal = val; //constrain(val, 0, 100);
+        setPWMVal(SPIFFS, pwmVal);
         setPWM(pwmVal);
     }
     else if (!strcmp(variable, "timelapseInterval"))
@@ -1527,8 +1528,6 @@ bool saveImage(String filename, int pwmVal)
             res = false;
             return res;
         }
-        // save energy
-        setPWM(0);
 
         size_t fb_len = 0;
         if (fb->format == PIXFORMAT_JPEG)

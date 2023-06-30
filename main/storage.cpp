@@ -455,6 +455,23 @@ void setTimelapseInterval(fs::FS &fs, uint32_t value)
   writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
+static const char pwmvalKey[] = "pwmval";
+uint32_t getPWMVal(fs::FS &fs)
+{
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
+  if (mConfig.containsKey(pwmvalKey))
+    return mConfig[pwmvalKey];
+  else
+    return 0;
+}
+
+void setPWMVal(fs::FS &fs, uint32_t value)
+{
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
+  mConfig[pwmvalKey] = value;
+  writeJsonToSSpiffs(mConfig, SPIFFS);
+}
+
 
 void setCompiledDate(fs::FS &fs)
 {

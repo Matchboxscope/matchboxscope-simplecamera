@@ -33,6 +33,8 @@ void setCompiledDate(fs::FS &fs);
 bool getIsTimelapseGeneral(fs::FS &fs);
 void setIsTimelapseGeneral(fs::FS &fs, bool value);
 void setCompiledDate(fs::FS &fs);
+uint32_t getPWMVal(fs::FS &fs);
+void setPWMVal(fs::FS &fs, uint32_t value);
 
 
 extern void filesystemStart();
