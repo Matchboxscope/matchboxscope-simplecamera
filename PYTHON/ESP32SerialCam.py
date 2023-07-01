@@ -75,13 +75,19 @@ while True:
       iError += 1
       #serialdevice.reset_input_buffer()
       # reset device here
-      if False: #iError % 20:
-            try: serialdevice.close(); del serialdevice
+      if iError % 20:
+            try:
+                # close the device - similar to hard reset
+                serialdevice.setDTR(False)
+                serialdevice.setRTS(True)
+                time.sleep(.1)
+                serialdevice.setDTR(False)
+                serialdevice.setRTS(False)
+                time.sleep(.5)
+                #serialdevice.close()
             except: pass
-            # Connect to the USB device
-            serialdevice = connect_to_usb_device(manufacturer)
-
-
+            serialdevice = self.connect_to_usb_device()
+            nTrial = 0
       
     
 print(iError)
