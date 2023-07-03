@@ -318,6 +318,30 @@ void initWifi()
    */
   // TODO: Try to connect here if credentials are available
   //  load SSID/PW from SPIFFS
+
+  // Scan for Wi-Fi networks
+  int networkCount = WiFi.scanNetworks();
+  
+  if (networkCount == 0) {
+    Serial.println("No Wi-Fi networks found");
+  } else {
+    Serial.print("Found ");
+    Serial.print(networkCount);
+    Serial.println(" Wi-Fi networks:");
+    
+    for (int i = 0; i < networkCount; ++i) {
+      String ssid = WiFi.SSID(i);
+      int rssi = WiFi.RSSI(i);
+      int encryptionType = WiFi.encryptionType(i);
+      
+      Serial.print(i + 1);
+      Serial.print(": ");
+      Serial.print(ssid);
+      Serial.print(" Signal strength: ");
+      Serial.print(rssi);
+      Serial.println(" dBm");
+    }
+  }
   String mssid_tmp = getWifiSSID(SPIFFS);
   String mpassword_tmp = getWifiPW(SPIFFS);
 
