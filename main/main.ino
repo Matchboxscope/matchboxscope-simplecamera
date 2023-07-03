@@ -9,7 +9,6 @@
 #define SIOD_GPIO_NUM 40
 #define SIOC_GPIO_NUM 39
 
-
 #define Y9_GPIO_NUM 48
 #define Y8_GPIO_NUM 11
 #define Y7_GPIO_NUM 12
@@ -51,7 +50,7 @@ void loop()
   {
     String command = Serial.readString(); // Read the command until a newline character is received
 
-    Serial.println(command);                       // Print the command (debugging
+    Serial.println(command); // Print the command (debugging
 
     if (command.length() > 1 && command.charAt(0) == 't')
     {
@@ -60,9 +59,9 @@ void loop()
       // Use the value as needed
       // Apply manual settings for the camera
       sensor_t *s = esp_camera_sensor_get();
-      s->set_gain_ctrl(s, 0);              // auto gain off (1 or 0)
-      s->set_exposure_ctrl(s, 0);          // auto exposure off (1 or 0)
-      s->set_aec_value(s, value);      // set exposure manually (0-1200)
+      s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
+      s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
+      s->set_aec_value(s, value); // set exposure manually (0-1200)
     }
     else if (command.length() > 1 && command.charAt(0) == 'g')
     {
@@ -71,10 +70,14 @@ void loop()
 
       // Apply manual settings for the camera
       sensor_t *s = esp_camera_sensor_get();
-      s->set_gain_ctrl(s, 0);              // auto gain off (1 or 0)
-      s->set_exposure_ctrl(s, 0);          // auto exposure off (1 or 0)
-      s->set_agc_gain(s, value);           // set gain manually (0 - 30)
-
+      s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
+      s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
+      s->set_agc_gain(s, value);  // set gain manually (0 - 30)
+    }
+    else if (command.length() > 1 && command.charAt(0) == 'r')
+    {
+      // restart
+      ESP.restart();
     }
     else
     {
@@ -134,6 +137,12 @@ void cameraInit()
   sensor_t *s = esp_camera_sensor_get();
   s->set_hmirror(s, 1);
   s->set_vflip(s, 1);
+
+  // enable manual camera settings
+  s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
+  s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
+  s->set_aec_value(s, 100);   // set exposure manually (0-1200)
+  s->set_agc_gain(s, 0);      // set gain manually (0 - 30)
 }
 void grabImage()
 {

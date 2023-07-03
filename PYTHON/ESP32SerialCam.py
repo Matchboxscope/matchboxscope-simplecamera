@@ -11,7 +11,7 @@ import tifffile as tif
 
 import cv2
 
-def connect_to_usb_device(manufacturer):
+def connect_to_usb_device(manufacturer="Espressif"):
     ports = serial.tools.list_ports.comports()
     for port in ports:
         if port.manufacturer == manufacturer or port.manufacturer == "Microsoft":
@@ -85,8 +85,8 @@ while True:
                 serialdevice.setRTS(False)
                 time.sleep(.5)
                 #serialdevice.close()
-            except: pass
-            serialdevice = self.connect_to_usb_device()
+            except Exception as e: pass
+            serialdevice = connect_to_usb_device()
             nTrial = 0
       
     
