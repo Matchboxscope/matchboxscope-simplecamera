@@ -129,6 +129,8 @@ extern bool saveImage(String filename);
 // Critical error string; if set during init (camera hardware failure) it
 // will be returned for all http requests
 String critERR = "";
+int LED_LEDC_CHANNEL = 2 ;
+int led_duty = 255;
 
 void initWifi()
 {
@@ -543,6 +545,11 @@ void setup()
 
   // OTA
   startOTAServer();
+
+  // indicate wifi LED
+  ledcSetup(LED_LEDC_CHANNEL, 5000, 8);
+  ledcAttachPin(LED_GPIO_NUM, LED_LEDC_CHANNEL);
+
 }
 
 int WIFI_WATCHDOG = 15000;
@@ -550,38 +557,20 @@ void loop()
 {
   // client mode can fail; so reconnect as appropriate
   static bool warned = false;
-  if (WiFi.status() == WL_CONNECTED)
+  if (!WiFi.status() == WL_CONNECTED)
   {
-    // We are connected, wait a bit and re-check
-    if (warned)
-    {
-      // Tell the user if we have just reconnected
-      Serial.println("WiFi reconnected");
-      warned = false;
-    }
-    // loop here for WIFI_WATCHDOG, turning debugData true/false depending on serial input..
-    unsigned long start = millis();
-    while (millis() - start < WIFI_WATCHDOG)
-    {
-      // ArduinoOTA.handle();
-      delay(100);
-    }
+    // indicate we are not connected to the  WIFI
+    ledcWrite(LED_LEDC_CHANNEL, 255);
+    Serial.println("WiFi disconnected, retrying");
+    initWifi();
   }
   else
   {
-    // disconnected; attempt to reconnect
-    if (!warned)
-    {
-      // Tell the user if we just disconnected
-      WiFi.disconnect(); // ensures disconnect is complete, wifi scan cleared
-      Serial.println("WiFi disconnected, retrying");
-      warned = true;
-    }
-    initWifi();
+    // indicate we are connected to the  WIFI
+    ledcWrite(LED_LEDC_CHANNEL, 0);
+    // wait for incoming OTA client udpates
+    OTAserver.handleClient(); // FIXME: the OTA, "REST API" and stream run on 3 different ports - cause: me not being able to merge OTA and REST; STREAM shuold be independent to have a non-blockig experience
   }
-
-  // wait for incoming OTA client udpates
-  OTAserver.handleClient(); // FIXME: the OTA, "REST API" and stream run on 3 different ports - cause: me not being able to merge OTA and REST; STREAM shuold be independent to have a non-blockig experience
 }
 
 // Function to convert MAC address to a 5-digit integer
@@ -698,23 +687,27 @@ void startOTAServer()
   Serial.println("Visit http://IPADDRESS_SCOPE:82");
 }
 
-
-void scanNetworks() {
-// Scan for Wi-Fi networks
+void scanNetworks()
+{
+  // Scan for Wi-Fi networks
   int networkCount = WiFi.scanNetworks();
-  
-  if (networkCount == 0) {
+
+  if (networkCount == 0)
+  {
     Serial.println("No Wi-Fi networks found");
-  } else {
+  }
+  else
+  {
     Serial.print("Found ");
     Serial.print(networkCount);
     Serial.println(" Wi-Fi networks:");
-    
-    for (int i = 0; i < networkCount; ++i) {
+
+    for (int i = 0; i < networkCount; ++i)
+    {
       String ssid = WiFi.SSID(i);
       int rssi = WiFi.RSSI(i);
       int encryptionType = WiFi.encryptionType(i);
-      
+
       Serial.print(i + 1);
       Serial.print(": ");
       Serial.print(ssid);
@@ -724,3 +717,4 @@ void scanNetworks() {
     }
   }
 }
+
