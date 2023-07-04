@@ -50,7 +50,9 @@ while True:
       time.sleep(.05)
       #serialdevice.flushInput()
       #serialdevice.flushOutput()
-      
+    
+
+
       imageB64 = serialdevice.readline()
 
       #imageB64 = str(imageB64).split("+++++")[-1].split("----")[0]
@@ -74,7 +76,7 @@ while True:
       serialdevice.flushOutput()
       iError += 1
       #serialdevice.reset_input_buffer()
-      # reset device here
+      # reset device here 
       if iError % 20:
             try:
                 # close the device - similar to hard reset

@@ -42,16 +42,14 @@ bool isStreaming = true;
 
 /* setting expsorue time: t1000
 setting gain: g1
-getting frame: c */
+getting frame: \n 
+restarting: r0 */
 void loop()
 {
   // Check for incoming serial commands
   if (Serial.available() > 0)
   {
     String command = Serial.readString(); // Read the command until a newline character is received
-
-    Serial.println(command); // Print the command (debugging
-
     if (command.length() > 1 && command.charAt(0) == 't')
     {
       // exposure time
@@ -152,6 +150,7 @@ void grabImage()
   if (!fb || fb->format != PIXFORMAT_JPEG)
   {
     Serial.println("Failed to capture image");
+    ESP32.restart();
   }
   else
   {
