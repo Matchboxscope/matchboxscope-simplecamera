@@ -41,6 +41,9 @@ imageString = ""
 
 #cv2.startWindowThread()
 
+serialdevice.write(('t10\n').encode())
+serialdevice.readline()
+
 while True:
   try:
       #read image and decode
@@ -48,22 +51,27 @@ while True:
       serialdevice.write(('\n').encode())
       # don't read to early
       time.sleep(.05)
-      #serialdevice.flushInput()
-      #serialdevice.flushOutput()
-    
+      
+      # Read a frame from the serial port
+      frame_size = 320 * 240
+      frame_bytes = serialdevice.read(frame_size)
 
-
-      imageB64 = serialdevice.readline()
+      # Convert the bytes to a numpy array
+      frame = np.frombuffer(frame_bytes, dtype=np.uint8)
+      frame = frame.reshape((320, 240))
 
       #imageB64 = str(imageB64).split("+++++")[-1].split("----")[0]
-      image = np.array(Image.open(io.BytesIO(base64.b64decode(imageB64.decode()))))
       print("framerate: "+(str(1/(time.time()-t0))))
       t0 = time.time()
       if cv2.waitKey(25) & 0xFF == ord('q'):
           break
-      cv2.imshow("image", image)
- 
-      image = np.mean(image,-1)
+      cv2.imshow("image", frame)
+      
+      serialdevice.flushInput()
+      serialdevice.flushOutput()
+      serialdevice.readline()
+
+      frame = np.mean(frame,-1)
       #cv2.waitKey(-1)
       #plt.imshow(image), plt.show()
       #serialdevice.flushInput()

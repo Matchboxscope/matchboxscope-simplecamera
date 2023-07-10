@@ -1,3 +1,121 @@
+#%%
+import serial
+import time
+import serial.tools.list_ports
+from PIL import Image
+import base64
+import io
+import numpy as np
+import matplotlib.pyplot as plt
+import tifffile as tif
+
+import cv2
+
+def connect_to_usb_device(manufacturer="Espressif"):
+    ports = serial.tools.list_ports.comports()
+    for port in ports:
+        if port.manufacturer == manufacturer or port.manufacturer == "Microsoft":
+            try:
+                ser = serial.Serial(port.device, baudrate=2000000, timeout=1)
+                print(f"Connected to device: {port.description}")
+                ser.write_timeout = 1
+                return ser
+            except serial.SerialException:
+                print(f"Failed to connect to device: {port.description}")
+    print("No matching USB device found.")
+    return None
+
+# Specify the manufacturer to connect to
+manufacturer = 'Espressif'
+
+# Connect to the USB device
+serialdevice = connect_to_usb_device(manufacturer)
+
+
+#%%
+iError = 0
+
+t0 = time.time()
+message = ""
+imageString = ""
+
+#cv2.startWindowThread()
+
+serialdevice.write(('t10\n').encode())
+serialdevice.readline()
+
+while True:
+  try:
+        #read image and decode
+        #serialdevice.write(b"")
+        serialdevice.write(('\n').encode())
+        # don't read to early
+        time.sleep(.05)
+        #serialdevice.flushInput()
+        #serialdevice.flushOutput()
+        
+        #imageB64 = serialdevice.readline()
+        
+        # Read a frame from the serial port
+        frame_size = 320 * 240
+        frame_bytes = serialdevice.read(frame_size)
+        
+        # Convert the bytes to a numpy array
+        frame_flat = np.frombuffer(frame_bytes, dtype=np.uint8)
+        frame = frame_flat.reshape((240, 320))
+        
+        # find 0,1,0,1... pattern to sync
+        pattern = (0,1,0,1,0,1,0,1,0,1)
+        window_size = len(pattern)
+        for i in range(len(frame_flat) - window_size + 1):
+            # Check if the elements in the current window match the pattern
+            if np.array_equal(frame_flat[i:i+window_size], pattern):
+                print(i)
+                break
+            
+
+
+        print("framerate: "+(str(1/(time.time()-t0))))
+        t0 = time.time()
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            break
+        cv2.imshow("image", frame)
+    
+        frame = np.mean(frame,-1)
+        #cv2.waitKey(-1)
+        #plt.imshow(image), plt.show()
+        #serialdevice.flushInput()
+        #serialdevice.flushOutput()
+        #tif.imsave("test_stack_esp32.tif", image, append=True)
+  except Exception as e:
+      print("Error")
+      print(e)
+      serialdevice.flushInput()
+      serialdevice.flushOutput()
+      iError += 1
+      #serialdevice.reset_input_buffer()
+      # reset device here 
+      if iError % 20:
+            try:
+                # close the device - similar to hard reset
+                serialdevice.setDTR(False)
+                serialdevice.setRTS(True)
+                time.sleep(.1)
+                serialdevice.setDTR(False)
+                serialdevice.setRTS(False)
+                time.sleep(.5)
+                #serialdevice.close()
+            except Exception as e: pass
+            serialdevice = connect_to_usb_device()
+            nTrial = 0
+      
+    
+print(iError)
+
+#%%
+        
+        
+''' ESP CODE
 #include "esp_camera.h"
 #include <base64.h>
 
@@ -179,3 +297,5 @@ void grabImage()
 
   esp_camera_fb_return(fb);
 }
+'''
+# %%
