@@ -17,9 +17,20 @@
 #include "anglerfishcamsettings.h"
 
 
-#define NEOPIXEL
+
+//#define NEOPIXEL
 #define NUMPIXELS 16
 
+#define STEPPER_MOTOR
+#define STEPPER_MOTOR_STEPS 200
+#define STEPPER_MOTOR_SPEED 1000
+#define STEPPER_MOTOR_DIR D2
+#define STEPPER_MOTOR_STEP D1
+#define STEPPER_MOTOR_ENABLE D0
+
+#ifdef CAMERA_MODEL_XIAO
+#include <AccelStepper.h>
+#endif
 
 // camera configuration
 #define CAM_NAME "Matchboxscope"
@@ -782,6 +793,41 @@ void setup()
     ESP.restart();
   }
 
+  #if defined(CAMERA_MODEL_XIAO)
+    // setup stepper
+  if(0){
+      digitalWrite(STEPPER_MOTOR_DIR, HIGH);
+  Serial.println("Spinning Clockwise...");
+    pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
+  digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+  for(int i = 0; i<2000; i++)
+  {
+    digitalWrite(STEPPER_MOTOR_STEP, HIGH);
+    delayMicroseconds(2000);
+    digitalWrite(STEPPER_MOTOR_STEP, LOW);
+    delayMicroseconds(2000);
+  }
+  delay(1000); 
+  
+
+
+  AccelStepper motor(1, STEPPER_MOTOR_STEP, STEPPER_MOTOR_DIR);
+
+  motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
+  motor.setAcceleration(60);
+  motor.setSpeed(200);
+  pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
+  digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+  log_d("Stepper motor setup");
+  motor.runToNewPosition(500);
+  motor.runToNewPosition(-500);
+  log_d("Stepper motor setup 2");
+  motor.moveTo(-200);
+  digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+  }
+  #endif
+
+
   // actions done on first boot
   bool isFirstRun = isFirstBoot();
   if (isFirstRun)
@@ -891,6 +937,8 @@ void setup()
       }
     }
   }
+
+
 
 #endif
   // Start threads for background frame publishing and serial handling // FIXME: Is this really necessary?
