@@ -309,9 +309,9 @@ String getThreeDigitID()
   // Take the modulo with 100000 to get a 5-digit number
   uint32_t five_digit_number = combined_mac % 100000;
 
-  
+
   return String(five_digit_number);
-  
+
 }
 
 void initWifi()
@@ -1088,7 +1088,7 @@ void loop()
    #ifdef CAMERA_MODEL_XIAO
     motor.runSpeed();
     #endif
-  
+
 
 }
 
@@ -1416,7 +1416,7 @@ void moveFocus(int steps)
   motor.move(steps);
   while(motor.distanceToGo() != 0){
     motor.run();
-  }  
+  }
 //  digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
   isMotorRunning=false;
   motor.setSpeed(0);
