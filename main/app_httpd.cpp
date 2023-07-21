@@ -47,6 +47,8 @@ extern void setLamp(int newVal);
 extern void setPWM(int newVal);
 extern void loadSpiffsToPrefs(fs::FS &fs);
 extern bool isTimelapseAnglerfish;
+extern void moveFocus(int val);
+extern void setSpeed(int val);
 
 camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename, int pwmVal = -1);
@@ -84,6 +86,7 @@ extern int sensorPID;
 extern int sdInitialized;
 extern bool isTimelapseGeneral;
 extern bool isStack;
+
 
 bool IS_STREAM_PAUSE = false;
 
@@ -696,6 +699,27 @@ static esp_err_t cmd_handler(httpd_req_t *req)
             setLamp(lampVal);
         }
     }
+    // control focus motor
+    else if (!strcmp(variable, "mFocusUp"))
+    {
+        val = 50;
+        Serial.print("Moving focus up");
+        Serial.println(val);
+        moveFocus(val);
+    }
+    else if (!strcmp(variable, "mFocusDown"))
+    {
+        val = -50;
+        Serial.print("Moving focus down");
+        Serial.println(val);
+        moveFocus(val);
+    }    
+    else if (!strcmp(variable, "focusSlider"))
+    {
+        Serial.print("Moving focus at speed");
+        Serial.println(val);
+        setSpeed(val);
+    }
     else if (!strcmp(variable, "pwm") && (pwmVal != -1))
     {
         pwmVal = val; //constrain(val, 0, 100);
@@ -826,10 +850,10 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"code_ver\":\"%s\",", myVer);
         p += sprintf(p, "\"rotate\":\"%d\",", myRotation);
         p += sprintf(p, "\"stream_url\":\"%s\",", streamURL);
-        p += sprintf(p, "\"sdcard\":%d,", sdInitialized);
+        p += sprintf(p, "\"sd_card\":%d,", sdInitialized);
         // p += sprintf(p, "\"compiled_date\":%llu,", compileDate);
         p += sprintf(p, "\"isStack\":\"%u\",", isStack);
-        p += sprintf(p, "\"imagesServed\":\"%u\",", imagesServed);
+        p += sprintf(p, "\"images_served\":\"%u\",", imagesServed);
         p += sprintf(p, "\"isTimelapseGeneral\":\"%u\",", isTimelapseGeneral);
         p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
     }
@@ -1513,12 +1537,6 @@ bool saveImage(String filename, int pwmVal)
 
         int64_t fr_start = esp_timer_get_time();
 
-        // FIXME: Why is this necessary?  Without it, the first frame is always garbage, e.g shifted lines - JPEG artifact?.
-        for (int iDummyFrames = 0; iDummyFrames < 2; iDummyFrames++)
-        {
-            fb = esp_camera_fb_get();
-            esp_camera_fb_return(fb);
-        }
         fb = esp_camera_fb_get();
         if (!fb)
         {
@@ -1526,6 +1544,8 @@ bool saveImage(String filename, int pwmVal)
             if (autoLamp && (lampVal != -1))
                 setLamp(0);
             res = false;
+            esp_camera_fb_return(fb);
+            fb = NULL;
             return res;
         }
 
@@ -1559,7 +1579,12 @@ bool saveImage(String filename, int pwmVal)
         File imgFile = fs.open((filename + extension).c_str(), FILE_WRITE);
         if (!imgFile)
         {
-            Serial.println("Failed to open file in writing mode");
+            Serial.println("SD: Failed to open file in writing mode");
+            // reset frame buffer
+            esp_camera_fb_return(fb);
+            fb = NULL;
+            // Resume the stream
+            IS_STREAM_PAUSE = false;
             return false;
         }
         else

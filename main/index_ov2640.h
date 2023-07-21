@@ -57,6 +57,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <input type="range" id="pwm" min="0" max="512" value="0" class="default-action">
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
               </div>
+
               <div class="input-group hidden" id="timelapseInterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">
                 <label for="timelapseInterval">Timelapse Interval (s)</label>
                 <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action" oninput="document.getElementById('valTimelapse').innerHTML = this.value" />
@@ -313,9 +314,11 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <button id="reboot" title="Reboot the camera module">Reboot</button>
                 <button id="save_prefs" title="Save Preferences on camera module">Save</button>
                 <button id="clear_prefs" title="Erase saved Preferences on camera module">Erase</button>
+              </div>
+              <div class="input-group" id="wifipref-group">
+                <label for="WifiPrefs" style="line-height: 2em;">Wifi Settings</label>
                 <button id="mWifiConfirm" title="Confirm the wifi settings">Confirm Wifi</button>
               </div>
-
               <div class="input-group" id="set-ssid-group" title="Change the Wifi SSID">
                 <label for="set-ssid">WiFi SSID</label>
                 <div class="text">
@@ -328,11 +331,32 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                  <input id="password" type="text" class="default-action">
                </div>  
               </div> 
+              <div class="input-group" id="focus-group">
+                <label for="FocusSettings" style="line-height: 2em;">Move Focus</label>
+                <button id="mFocusUp" title="Focus++">Focus++</button>
+                <button id="mFocusDown" title="Focus--">Focus--</button>
+              </div>
+              <div class="input-group" id="focus-group">
+                <label for="FocusSettings" style="line-height: 2em;">Move Focus</label>
+                <input type="range" id="focusSlider" min="-200" max="200" step="50" value="0">
+                <span id="sliderValue">0</span>
+              </div>
               <div class="input-group" id="cam_name-group">
                 <label for="cam_name">
                 <a href="/dump" title="System Info" target="_blank">Name</a></label>
                 <div id="cam_name" class="default-action"></div>
               </div>
+              <div class="input-group" id="sd_card-group">
+                <label for="sd_card">
+                <a href="/dump" title="System Info" target="_blank">Name</a></label>
+                <div id="sd_card" class="default-action"></div>
+              </div>
+              <div class="input-group" id="images_served-group">
+                <label for="images_served">
+                <a href="/dump" title="System Info" target="_blank">Name</a></label>
+                <div id="images_served" class="default-action"></div>
+              </div>              
+              sdcard
               <div class="input-group" id="code_ver-group">
                 <label for="code_ver">
                 <a href="https://github.com/easytarget/esp32-cam-webserver"
@@ -373,6 +397,8 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const anglerfishGroup = document.getElementById('anglerfish-group')
     const streamGroup = document.getElementById('stream-group')
     const camName = document.getElementById('cam_name')
+    const sdCard = document.getElementById('sd_card')
+    const imagesServed = document.getElementById('images_served')
     const codeVer = document.getElementById('code_ver')
     const rotate = document.getElementById('rotate')
     const view = document.getElementById('stream')
@@ -388,6 +414,11 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const mSSID = document.getElementById('ssid')
     const mPassword = document.getElementById('password')
     const confirmWifi = document.getElementById('mWifiConfirm')
+    const focusUp = document.getElementById('mFocusUp')
+    const focusDown = document.getElementById('mFocusDown')
+    const focusSlider = document.getElementById('focusSlider');
+    const sliderValue = document.getElementById('sliderValue');
+
     const swapButton = document.getElementById('swap-viewer')
     const writePrefsToSSpiffsButton = document.getElementById('save_prefs')
     const clearPrefsButton = document.getElementById('clear_prefs')
@@ -471,7 +502,18 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
           camName.innerHTML = value;
           window.document.title = value;
           console.log('Name set to: ' + value);
-        } else if(el.id === "code_ver"){
+        } 
+          else if(el.id === "sd_card"){
+          sdCard.innerHTML = value;
+          window.document.title = value;
+          console.log('SDCard  set to: ' + value);
+        } 
+          else if(el.id === "images_served"){
+          imagesServed.innerHTML = value;
+          window.document.title = value;
+          console.log('ImagesServed set to: ' + value);
+        }         
+          else if(el.id === "code_ver"){
           codeVer.innerHTML = value;
           console.log('Firmware Build: ' + value);
         } else if(el.id === "rotate"){
@@ -520,6 +562,8 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
           value = el.value
           break
         case 'button':
+          // split value after first ?
+          value = el.value.split('?')[0]
         case 'submit':
           value = '1'
           break
@@ -617,6 +661,14 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       view.src = `${baseHost}/capture?_cb=${Date.now()}`;
       view.scrollIntoView(false);
       show(viewContainer);
+
+      // Create a temporary link element
+      const link = document.createElement('a');
+      link.href = view.src;
+      link.download = 'image.png';
+
+      // Trigger the download
+      link.click();
     }
     
     githubButton.onclick = () => {
@@ -750,6 +802,26 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
         updateConfig(mPassword);
       }
     }
+    focusUp.onclick = () => {
+      updateConfig(focusUp);
+    }
+    focusDown.onclick = () => {
+      updateConfig(focusDown);
+    }
+    focusSlider.addEventListener('input', () => {
+      const value = focusSlider.value;
+      sliderValue.innerText = value;
+    });
+
+    focusSlider.addEventListener('change', () => {
+      // Snap the slider back to the center when released
+      focusSlider.value = 0;
+      sliderValue.innerText = '0';
+      
+      // Send the value to the server
+      updateConfig(focusSlider);
+    });
+
     rebootButton.onclick = () => {
       if (confirm("Reboot the Camera Module?")) {
         updateConfig(rebootButton);

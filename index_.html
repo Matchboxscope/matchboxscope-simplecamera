@@ -1,4 +1,3 @@
-<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
@@ -25,6 +24,8 @@
         <button id="swap-viewer" style="float:left;" title="Swap to simple viewer">Simple</button>
         <button id="get-still" style="float:left;">Get Still</button>
         <button id="send-github" style="float:left;">To GitHub</button>
+        <img alt="ImJoy" src="https://ij.imjoy.io/assets/badge/open-in-imagej-js-badge.svg" style="float:left;" /></a></span>
+        <button id="send-imjoy" style="float:left;">To ImJoy</button>
         <button id="toggle-stream" style="float:left;" class="hidden">Start Stream</button>
         <div id="wait-settings" style="float:left;" class="loader" title="Waiting for camera settings to load"></div>
       </div>
@@ -48,17 +49,38 @@
               <div class="input-group hidden" id="pwm-group" title="PWM value.&#013;&#013;Warning:&#013;This controls an external element such as the PWM-driven Lens or the pump on pin 12.">
                 <label for="pwm">PWM</label>
                 <div class="range-min">Off</div>
-                <input type="range" id="pwm" min="0" max="100" value="0" class="default-action">
+                <input type="range" id="pwm" min="0" max="512" value="0" class="default-action">
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
               </div>
-              <div class="input-group hidden" id="timelapseinterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">
-                <label for="timelapseInterval">timelapseInterval</label>
-                <div class="range-min">Off</div>
-                <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action"
-                      oninput="document.getElementById('valTimelapse').innerHTML = this.value" /></span>
-                    <label id="valTimelapse"></label>
-                <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
-              </div>
+
+              <div class="input-group hidden" id="timelapseInterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">
+                <label for="timelapseInterval">Timelapse Interval (s)</label>
+                <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action" oninput="document.getElementById('valTimelapse').innerHTML = this.value" />
+                <div>
+                  <label id="valTimelapse"></label>
+                </div>
+              </div>              
+              <div class="input-group hidden" id="anglerfish-group" title="Anglerfish Settings Set it to enter the deep-sleep mode with preset time value for periodic image capturing.">
+                <label for="AnglerfishSettings">AnglerfishSettings</label>
+                <div class="range-min">No</div>
+                <input type="range" min="0" max="100" value="0" id="anglerfishSlider" class="default-action">
+                <div class="range-max"><a href="d" id="anglerfishLink" style="display: none;">Click here to access the link</a></div>
+                <script>
+                  const anglerfishSlider = document.getElementById("anglerfishSlider");
+                  const anglerfishLink = document.getElementById("anglerfishLink");
+                  anglerfishSlider.addEventListener("input", function() {
+                    if (anglerfishSlider.value == 100) {
+                      anglerfishLink.style.display = "block";
+                      var baseHost = document.location.origin;
+                      anglerfishLink.href=`${baseHost}/anglerfishmode`;
+                      anglerfishLink.text = `Enter Anglerfish Mode (remove SD card to return to normal mode)`;
+                    } else {
+                      anglerfishLink.style.display = "none";
+                    }
+                  });
+                </script>   
+                <script src="https://lib.imjoy.io/imjoy-loader.js"></script>             
+              </div>              
                 <div class="input-group" id="framesize-group" title="Camera resolution&#013;Higher resolutions will result in lower framerates">
                 <label for="framesize">Resolution</label>
                 <select id="framesize" class="default-action">
@@ -218,6 +240,20 @@
                   <label class="slider" for="lenc"></label>
                 </div>
               </div>
+              <div class="input-group" id="stack-group">
+                <label for="stack">Stack Enable</label>
+                <div class="switch">
+                  <input id="stack" type="checkbox" class="default-action" checked="checked">
+                  <label class="slider" for="stack"></label>
+                </div>
+              </div>              
+              <div class="input-group" id="timelapse-group">
+                <label for="isTimelapse">Timelapse Enable</label>
+                <div class="switch">
+                  <input id="isTimelapse" type="checkbox" class="default-action" checked="checked">
+                  <label class="slider" for="isTimelapse"></label>
+                </div>
+              </div>              
               <div class="input-group" id="hmirror-group">
                 <label for="hmirror">H-Mirror Stream</label>
                 <div class="switch">
@@ -274,6 +310,32 @@
                 <button id="save_prefs" title="Save Preferences on camera module">Save</button>
                 <button id="clear_prefs" title="Erase saved Preferences on camera module">Erase</button>
               </div>
+              <div class="input-group" id="wifipref-group">
+                <label for="WifiPrefs" style="line-height: 2em;">Wifi Settings</label>
+                <button id="mWifiConfirm" title="Confirm the wifi settings">Confirm Wifi</button>
+              </div>
+              <div class="input-group" id="set-ssid-group" title="Change the Wifi SSID">
+                <label for="set-ssid">WiFi SSID</label>
+                <div class="text">
+                   <input id="ssid" type="text" class="default-action">
+                 </div>
+              </div> 
+             <div class="input-group" id="set-password-group" title="Change the Wifi Passowrd">
+              <label for="set-password">WiFi Password</label>
+              <div class="password">
+                 <input id="password" type="text" class="default-action">
+               </div>  
+              </div> 
+              <div class="input-group" id="focus-group">
+                <label for="FocusSettings" style="line-height: 2em;">Move Focus</label>
+                <button id="mFocusUp" title="Focus++">Focus++</button>
+                <button id="mFocusDown" title="Focus--">Focus--</button>
+              </div>
+              <div class="input-group" id="focus-group">
+                <label for="FocusSettings" style="line-height: 2em;">Move Focus</label>
+                <input type="range" id="focusSlider" min="-1000" max="1000" step="50" value="0">
+                <span id="sliderValue">0</span>
+              </div>
               <div class="input-group" id="cam_name-group">
                 <label for="cam_name">
                 <a href="/dump" title="System Info" target="_blank">Name</a></label>
@@ -284,11 +346,13 @@
                 <a href="https://github.com/easytarget/esp32-cam-webserver"
                   title="ESP32 Cam Webserver on GitHub" target="_blank">Firmware</a></label>
                 <div id="code_ver" class="default-action"></div>
-              </div>
+              </div>                       
               <div class="input-group hidden" id="stream-group">
                 <label for="stream_url" id="stream_link">Stream</label>
-                <div id="stream_url" class="default-action">Unknown</div>
-              </div>
+                <div id="stream_url" class="default-action">Unknown</div>             
+               <div id="window-container"></div>
+              <div id="menu-container"></div>
+           </div>             
             </nav>
         </div>
         <figure>
@@ -314,6 +378,7 @@
     const autolampGroup = document.getElementById('autolamp-group')
     const pwmGroup = document.getElementById('pwm-group')
     const timelapseintervalGroup = document.getElementById('timelapseInterval-group')
+    const anglerfishGroup = document.getElementById('anglerfish-group')
     const streamGroup = document.getElementById('stream-group')
     const camName = document.getElementById('cam_name')
     const codeVer = document.getElementById('code_ver')
@@ -322,13 +387,22 @@
     const viewContainer = document.getElementById('stream-container')
     const stillButton = document.getElementById('get-still')
     const githubButton = document.getElementById('send-github')
+    const imjoyButton = document.getElementById('send-imjoy')
     const streamButton = document.getElementById('toggle-stream')
     const closeButton = document.getElementById('close-stream')
     const streamLink = document.getElementById('stream_link')
     const framesize = document.getElementById('framesize')
     const xclk = document.getElementById('xclk')
+    const mSSID = document.getElementById('ssid')
+    const mPassword = document.getElementById('password')
+    const confirmWifi = document.getElementById('mWifiConfirm')
+    const focusUp = document.getElementById('mFocusUp')
+    const focusDown = document.getElementById('mFocusDown')
+    const focusSlider = document.getElementById('focusSlider');
+    const sliderValue = document.getElementById('sliderValue');
+
     const swapButton = document.getElementById('swap-viewer')
-    const savePrefsButton = document.getElementById('save_prefs')
+    const writePrefsToSSpiffsButton = document.getElementById('save_prefs')
     const clearPrefsButton = document.getElementById('clear_prefs')
     const rebootButton = document.getElementById('reboot')
     const minFrameTime = document.getElementById('min_frame_time')
@@ -391,13 +465,22 @@
           } else {
             show(pwmGroup)
           }
-          } else if(el.id === "timelapseInterval"){
+          } 
+          else if(el.id === "timelapseInterval"){
           if (value == -1) {
             hide(timelapseintervalGroup)
           } else {
             show(timelapseintervalGroup)
           }
-        } else if(el.id === "cam_name"){
+        }
+          else if(el.id === "anglerfishSlider"){
+            if (value == -1){
+              hide(anglerfishGroup)
+            } else {
+              show(anglerfishGroup)
+            }
+          }
+         else if(el.id === "cam_name"){
           camName.innerHTML = value;
           window.document.title = value;
           console.log('Name set to: ' + value);
@@ -450,8 +533,13 @@
           value = el.value
           break
         case 'button':
+          // split value after first ?
+          value = el.value.split('?')[0]
         case 'submit':
           value = '1'
+          break
+        case 'text':
+          value = el.value
           break
         default:
           return
@@ -493,7 +581,9 @@
     // Put some helpful text on the 'Still' button
     stillButton.setAttribute("title", `Capture a still image :: ${baseHost}/capture`);
     githubButton.setAttribute("title", `Upload a still image to Github :: ${baseHost}/uploadgithub`);
+    imjoyButton.setAttribute("title", `Upload a still image to ImJoy :: ${baseHost}/uploadimjoy`);
     
+
     const stopStream = () => {
       window.stop();
       streamButton.innerHTML = 'Start Stream';
@@ -542,23 +632,36 @@
       view.src = `${baseHost}/capture?_cb=${Date.now()}`;
       view.scrollIntoView(false);
       show(viewContainer);
+
+      // Create a temporary link element
+      const link = document.createElement('a');
+      link.href = view.src;
+      link.download = 'image.png';
+
+      // Trigger the download
+      link.click();
     }
     
     githubButton.onclick = () => {
       stopStream();
       view.src = `${baseHost}/capture?_cb=${Date.now()}`;
       view.scrollIntoView(false);
-      try {     
-        const response = await fetch(`${baseHost}/uploadgithub`;, {
-          method: 'get',
-          body: {
-          }
-        });
-        console.log('Completed!', response);
-      } catch(err) {
-        console.error(`Error: ${err}`);
-      }      
       show(viewContainer);
+      fetch(`${baseHost}/uploadgithub`).then(function(response) {
+      return response.json();
+      }).then(function(data) {
+        console.log(data);
+      }).catch(function(err) {
+        console.log('Fetch Error :-S', err);
+      });
+    }
+
+    imjoyButton.onclick = () => {
+      stopStream();
+      view.src = `${baseHost}/capture?_cb=ImJoy`;
+      view.scrollIntoView(false);
+      show(viewContainer);
+      sendToImageJ();
     }
 
     closeButton.onclick = () => {
@@ -635,6 +738,14 @@
       updateConfig(minFrameTime)
     }
 
+  
+    timelapseInterval.onchange = () => {
+      const timelapseInterval = document.getElementById('timelapseInterval');
+      valTimelapseLabel = document.getElementById('valTimelapse')
+      valTimelapseLabel.innerHTML = timelapseInterval.value;
+    }
+    
+
     xclk.onchange = () => {
       console.log("xclk:" , xclk);
       updateConfig(xclk)
@@ -644,9 +755,9 @@
       window.open('/?view=simple','_self');
     }
 
-    savePrefsButton.onclick = () => {
+    writePrefsToSSpiffsButton.onclick = () => {
       if (confirm("Save the current preferences?")) {
-        updateConfig(savePrefsButton);
+        updateConfig(writePrefsToSSpiffsButton);
       }
     }
 
@@ -655,6 +766,32 @@
         updateConfig(clearPrefsButton);
       }
     }
+
+    confirmWifi.onclick = () => {
+      if (confirm("Want to update SSID/Password? Please hit the reboot button to connect to the Wifi.")) {
+        updateConfig(mSSID);
+        updateConfig(mPassword);
+      }
+    }
+    focusUp.onclick = () => {
+      updateConfig(focusUp);
+    }
+    focusDown.onclick = () => {
+      updateConfig(focusDown);
+    }
+    focusSlider.addEventListener('input', () => {
+      const value = focusSlider.value;
+      sliderValue.innerText = value;
+    });
+
+    focusSlider.addEventListener('change', () => {
+      // Snap the slider back to the center when released
+      focusSlider.value = 0;
+      sliderValue.innerText = '0';
+      
+      // Send the value to the server
+      updateConfig(focusSlider);
+    });
 
     rebootButton.onclick = () => {
       if (confirm("Reboot the Camera Module?")) {
@@ -669,6 +806,62 @@
       }
     }
 
+    mSSID.onchange = () => {
+      console.log("xclk:" , xclk);
+      updateConfig(mSSID);        
+    } 
+
   })
-  </script>
+
+      loadImJoyBasicApp({
+      process_url_query: true,
+      show_window_title: false,
+      show_progress_bar: true,
+      show_empty_window: true,
+      menu_style: { position: "absolute", right: 0, top: "2px" },
+      window_style: { width: '100%', height: '100%' },
+      main_container: null,
+      menu_container: "menu-container",
+      window_manager_container: "window-container",
+      imjoy_api: {} // override some imjoy API functions here
+  }).then(async app => {
+      // get the api object from the root plugin
+      const api = app.imjoy.api;
+      // if you want to let users to load new plugins, add a menu item
+      app.addMenuItem({
+          label: "➕ Load Plugin",
+          callback() {
+              const uri = prompt(
+                  `Please type a ImJoy plugin URL`,
+                  "https://github.com/imjoy-team/imjoy-plugins/blob/master/repository/ImageAnnotator.imjoy.html"
+              );
+              if (uri) app.loadPlugin(uri);
+          },
+      });
+
+      window.sendToImageJ = async function () {
+          const imageURL = document.location.origin
+          const response = await fetch(`${imageURL}/capture?_cb=ImJoy`);
+          const bytes = await response.arrayBuffer();
+          // if you want a windows displayed in a draggable rezisable grid layout
+          let ij = await api.getWindow("ImageJ.JS")
+          if (!ij) {
+              ij = await api.createWindow({
+                  src: "https://ij.imjoy.io",
+                  name: "ImageJ.JS",
+                  fullscreen: true,
+                  // window_id: "imagej-window", // if you want to display imagej in a specific window, place a div with this id in the html
+              });
+          }
+          else {
+              await ij.show();
+          }
+          // https://github.com/imjoy-team/imagej.js#viewimageimg_array-config
+          await ij.viewImage(bytes, { name: 'image.jpeg' })
+      }
+    });
+
+
+</script>
+
 </html>
