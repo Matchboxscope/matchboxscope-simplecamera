@@ -283,32 +283,21 @@ void setPWM(int newVal)
 }
 
 String getThreeDigitID() {
-  uint8_t mac[6];
-  char macStr[18];
-  
   // Get the MAC address of the ESP32
-  WiFi.macAddress(mac);
-  Serial.print("MAC address: ");
-  Serial.println(WiFi.macAddress());
-  // Format the MAC address as a string
-  snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X", mac[3], mac[4], mac[5]);
+  uint8_t mac_address[6];
+  WiFi.macAddress(mac_address);
+
+  // Combine the MAC address bytes into a single 32-bit integer
+  uint32_t combined_mac = (mac_address[0] << 24) |
+                         (mac_address[1] << 16) |
+                         (mac_address[2] << 8) |
+                         mac_address[3];
+
+  // Take the modulo with 100000 to get a 5-digit number
+  uint32_t five_digit_number = combined_mac % 100000;
+
+  return String(five_digit_number);
   
-  // Extract the last 3 characters from the MAC address string
-  String lastThreeChars = String(macStr + 15);
-  
-  // Convert the last 3 characters to an integer
-  int id = lastThreeChars.toInt();
-  Serial.println("ID: " + String(id));
-  // Limit the ID to three digits by taking modulo 1000
-  id %= 1000;
-  
-  // Convert the ID back to a string and pad it with leading zeros if necessary
-  String idStr = String(id);
-  while (idStr.length() < 3) {
-    idStr = "0" + idStr;
-  }
-  
-  return idStr;
 }
 
 void initWifi()
