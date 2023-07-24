@@ -184,7 +184,7 @@ const int pwmMax = pow(2, pwmresolution) - 1;
 
 bool filesystem = true;
 
-bool otaEnabled = false;
+bool otaEnabled = true;
 char otaPassword[] = "";
 
 const char *ntpServer = "";
@@ -880,7 +880,7 @@ void setup()
     setIsTimelapseAnglerfish(false);
     isTimelapseAnglerfish = false;
     // Flash the LED to show SD card is not connected
-    blink_led(50, 20);
+    blink_led(5, 20);
   }
   else
   {

@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="manifest" href="manifest.json">
+    <link rel="stylesheet" href="css_materialize.min.css">
+    <style>
+        #mjpegContainer {
+            width: 100%;
+            max-width: 640px;
+            margin: 30px auto;
+            text-align: center;
+        }
+
+        #mjpegStream {
+            max-width: 100%;
+            height: auto;
+        }
+
+        .slider-container {
+            max-width: 400px;
+            margin: 50px auto;
+        }
+    </style>
+</head>
+<body>
+    <nav>
+        <div class="nav-wrapper">
+          <a href="#" class="brand-logo center">MJPEG Streamer</a>
+        </div>
+    </nav>
+
+    <div id="mjpegContainer">
+        <img id="mjpegStream" src="" alt="MJPEG Stream"/>
+    </div>
+
+    <div class="container">
+        <a class="waves-effect waves-light btn" id="startStopButton">Start Streaming</a>
+
+        <div class="slider-container">
+            <p class="range-field">
+                <input type="range" min="-200" max="200" value="0" class="slider" id="focusSlider" step="20">
+            </p>
+        </div>
+    </div>
+
+    <script src="js_materialize.min.js"></script>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/serviceworker.js')
+              .then(reg => console.log('Service Worker registered successfully.', reg))
+              .catch(err => console.warn('Error registering Service Worker.', err));
+          }        
+        const mjpegStream = document.getElementById('mjpegStream');
+        const startStopButton = document.getElementById('startStopButton');
+        const slider = document.getElementById('focusSlider');
+        let isStreaming = false;
+
+        startStopButton.addEventListener('click', function () {
+            if (!isStreaming) {
+                mjpegStream.src = "http://192.168.4.1:81";
+                startStopButton.innerText = 'Stop Streaming';
+                isStreaming = true;
+            } else {
+                mjpegStream.src = '';
+                startStopButton.innerText = 'Start Streaming';
+                isStreaming = false;
+            }
+        });
+
+        slider.addEventListener('change', function (event) {
+            const value = event.target.value;
+            fetch(`http://192.168.4.1/control?var=${slider.id}&val=${value}`)
+                .then(response => response.json())
+                .then(data => console.log(data))
+                .catch((error) => console.error('Error:', error));
+        });
+
+        slider.addEventListener('mouseup', function () {
+            slider.value = 0;
+        });
+    
+
+    
+    </script>
+</body>
+</html>
