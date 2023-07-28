@@ -11,6 +11,39 @@ import tifffile as tif
 
 import cv2
 
+def search_sequence_numpy(arr,seq):
+    """ Find sequence in an array using NumPy only.
+
+    Parameters
+    ----------    
+    arr    : input 1D array
+    seq    : input 1D array
+
+    Output
+    ------    
+    Output : 1D Array of indices in the input array that satisfy the 
+    matching of input sequence in the input array.
+    In case of no match, an empty list is returned.
+    """
+
+    # Store sizes of input array and sequence
+    arr = np.array(arr)
+    seq = np.array(seq)
+    Na, Nseq = arr.size, seq.size
+
+    # Range of sequence
+    r_seq = np.arange(Nseq)
+
+    # Create a 2D array of sliding indices across the entire length of input array.
+    # Match up with the input sequence & get the matching starting indices.
+    M = (arr[np.arange(Na-Nseq+1)[:,None] + r_seq] == seq).all(1)
+
+    # Get the range of those indices as final output
+    if M.any() >0:
+        return np.where(np.convolve(M,np.ones((Nseq),dtype=int))>0)[0][0]
+    else:
+        return 0         # No match found
+    
 def connect_to_usb_device(manufacturer="Espressif"):
     ports = serial.tools.list_ports.comports()
     for port in ports:
@@ -62,26 +95,27 @@ while True:
         
         # Convert the bytes to a numpy array
         frame_flat = np.frombuffer(frame_bytes, dtype=np.uint8)
-        frame = frame_flat.reshape((240, 320))
-        
+
         # find 0,1,0,1... pattern to sync
         pattern = (0,1,0,1,0,1,0,1,0,1)
-        window_size = len(pattern)
-        for i in range(len(frame_flat) - window_size + 1):
-            # Check if the elements in the current window match the pattern
-            if np.array_equal(frame_flat[i:i+window_size], pattern):
-                print(i)
-                break
-            
+        
+        indexPattern = search_sequence_numpy(frame_flat,pattern)
 
+        frame_flat_shifted =  np.roll(frame_flat,-indexPattern)
+        print(indexPattern)
 
+        # reshape into 2D image
+        frame = np.zeros(320*240, dtype=np.uint8)
+        frame[0:frame_flat_shifted.shape[0]]=frame_flat_shifted
+        frame = frame.reshape((240, 320))
         print("framerate: "+(str(1/(time.time()-t0))))
+        
         t0 = time.time()
-        if cv2.waitKey(25) & 0xFF == ord('q'):
-            break
+
         cv2.imshow("image", frame)
-    
-        frame = np.mean(frame,-1)
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            break    
+        #frame = np.mean(frame,-1)
         #cv2.waitKey(-1)
         #plt.imshow(image), plt.show()
         #serialdevice.flushInput()
@@ -95,7 +129,7 @@ while True:
       iError += 1
       #serialdevice.reset_input_buffer()
       # reset device here 
-      if iError % 20:
+      if not iError % 20 and iError >1:
             try:
                 # close the device - similar to hard reset
                 serialdevice.setDTR(False)
