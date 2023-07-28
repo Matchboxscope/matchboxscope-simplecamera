@@ -19,6 +19,11 @@ extern int timelapseInterval;
 extern bool isTimelapseGeneral;
 
 bool fileOpen = false;  // file-writing switch
+
+// Preference related stuff
+
+static const char isAnglerfishModeKey[] = "anglerfish";
+static const char groupName[] = "matchbox";
 /*
  * Useful utility when debugging...
  */
@@ -404,15 +409,33 @@ void setWifiPW(fs::FS &fs, String value)
 static const char frameIndexKey[] = "frameIndex";
 uint32_t getFrameIndex(fs::FS &fs)
 {
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  if (mConfig.containsKey(frameIndexKey))
-    return mConfig[frameIndexKey];
-  else
-    return 0;
+  // Open preferences with a namespace/key pair
+  Preferences preferences;
+  preferences.begin(groupName, false);
+
+  // Load the boolean value
+  int value = preferences.getInt(frameIndexKey, 0);
+
+  // Close the preferences
+  preferences.end();
+
+  return value;
 }
 
 void setFrameIndex(fs::FS &fs, int value)
 {
+  // Open preferences with a namespace/key pair
+  // it seems this survives a corruption of the SPIFFS!
+  Preferences preferences;
+  isTimelapseAnglerfish = value;
+  preferences.begin(groupName, false);
+
+  // Save the boolean value
+  preferences.putInt(frameIndexKey, value);
+
+  // Close the preferences
+  preferences.end();
+
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[frameIndexKey] = value;
   writeJsonToSSpiffs(mConfig, SPIFFS);
@@ -490,8 +513,6 @@ void setCompiledDate(fs::FS &fs)
 write to SPIFFS and the file gets corrupted or empty, we will loose these settings*/
 
 
-static const char isAnglerfishModeKey[] = "anglerfish";
-static const char groupName[] = "matchbox";
 
 void setIsTimelapseAnglerfish(bool value) {
   // Open preferences with a namespace/key pair

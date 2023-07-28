@@ -1150,7 +1150,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     int stepMin = 270;
     int stepMax = 296;
     bool isAcquireStack = getAcquireStack(SPIFFS);
-    if (isAcquireStack)
+    if (!isAcquireStack)
     {
       stepMin = 0;
       stepMax = 1;
