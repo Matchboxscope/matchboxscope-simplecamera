@@ -1,5 +1,6 @@
 #include "esp_camera.h"
 #include <base64.h>
+#include "flow.hpp"
 
 #define BAUD_RATE 2000000
 
@@ -31,6 +32,14 @@ void setup()
   Serial.begin(BAUD_RATE);
   Serial.setTimeout(20);
   cameraInit();
+
+  // setting up and configuring the flow computer, initializing it's image buffer
+  camera_fb_t * fb = esp_camera_fb_get();
+  // TODO: check/use fb->width (fb->height, fb->len)
+  Serial.printf("fb->width: %d, fb->height: %d, fb->len: %d\n", fb->width, fb->height, fb->len); // fb->width: 128, fb->height: 160, fb->len: 20480
+  flow_setup(fb->buf);
+  esp_camera_fb_return(fb); // return the buffer to the pool
+
 }
 
 int Nx = 320;
@@ -46,6 +55,7 @@ getting frame: \n
 restarting: r0 */
 void loop()
 {
+  /*
   // Check for incoming serial commands
   if (Serial.available() > 0)
   {
@@ -86,6 +96,25 @@ void loop()
 
     flushSerial();
   }
+  */
+ 
+   camera_fb_t * fb = esp_camera_fb_get();
+  if (!fb) {
+    Serial.println("Camera capture failed");
+    return; // ESP_FAIL;ca
+  }
+
+
+  int dt_us;
+  float flow_rate_x, flow_rate_y;
+  int flow_quality = getFlow(fb->buf, dt_us, flow_rate_x, flow_rate_y);
+
+
+  Serial.printf(" dt: %6d us,\tx: %7.3f,\ty: %7.3f,\tquality: %4d" PRIu16 " \n", dt_us, flow_rate_x, flow_rate_y, flow_quality);
+
+
+  esp_camera_fb_return(fb); // return the buffer to the pool
+
 }
 
 void flushSerial()
@@ -128,7 +157,7 @@ void cameraInit()
   config.jpeg_quality = 12;
 
   config.pixel_format = PIXFORMAT_GRAYSCALE; // PIXFORMAT_JPEG;
-  config.frame_size = FRAMESIZE_QVGA;        // for streaming}
+  config.frame_size = FRAMESIZE_QQVGA; //FRAMESIZE_QQVGA;// FRAMESIZE_QVGA;        // for streaming}
 
   config.fb_count = 1;
 
@@ -145,7 +174,7 @@ void cameraInit()
   // enable manual camera settings
   s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
   s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
-  s->set_aec_value(s, 100);   // set exposure manually (0-1200)
+  s->set_aec_value(s, 20);   // set exposure manually (0-1200)
   s->set_agc_gain(s, 0);      // set gain manually (0 - 30)
 }
 void grabImage()
@@ -182,7 +211,7 @@ void grabImage()
       Serial.println(encoded);
       //free(encoded); // Remember to free the encoded buffer after using it
 
-    }d0
+    }
     //Serial.println();
   }
 
