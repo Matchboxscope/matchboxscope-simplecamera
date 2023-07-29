@@ -182,7 +182,7 @@ void grabImage()
       Serial.println(encoded);
       //free(encoded); // Remember to free the encoded buffer after using it
 
-    }d0
+    }
     //Serial.println();
   }
 
