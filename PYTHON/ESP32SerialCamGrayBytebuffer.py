@@ -8,8 +8,12 @@ import io
 import numpy as np
 import matplotlib.pyplot as plt
 import tifffile as tif
-
+import base64
+import io
+from PIL import Image
+import numpy as np
 import cv2
+import math
 
 def connect_to_usb_device(manufacturer="Espressif"):
     ports = serial.tools.list_ports.comports()
@@ -55,24 +59,48 @@ while True:
         #serialdevice.flushOutput()
         
         #imageB64 = serialdevice.readline()
-        
-        # Read a frame from the serial port
-        frame_size = 320 * 240
-        frame_bytes = serialdevice.read(frame_size)
-        
-        # Convert the bytes to a numpy array
-        frame_flat = np.frombuffer(frame_bytes, dtype=np.uint8)
-        frame = frame_flat.reshape((240, 320))
-        
-        # find 0,1,0,1... pattern to sync
-        pattern = (0,1,0,1,0,1,0,1,0,1)
-        window_size = len(pattern)
-        for i in range(len(frame_flat) - window_size + 1):
-            # Check if the elements in the current window match the pattern
-            if np.array_equal(frame_flat[i:i+window_size], pattern):
-                print(i)
-                break
-            
+        def calculate_base64_length(width, height):
+            num_bytes = width * height
+            base64_length = math.ceil((num_bytes * 4) / 3)
+            # ensure length is multiple of 4
+            base64_length = base64_length + (4 - base64_length % 4) % 4
+            return base64_length
+
+        width = 320
+        height = 240
+        base64_length = calculate_base64_length(width, height)
+
+        if(0):
+          # Read a frame from the serial port
+          frame_size = 320 * 240
+          frame_bytes = serialdevice.read(frame_size)
+          
+          # Convert the bytes to a numpy array
+          frame_flat = np.frombuffer(frame_bytes, dtype=np.uint8)
+          frame = frame_flat.reshape((240, 320))
+          
+          # find 0,1,0,1... pattern to sync
+          pattern = (0,1,0,1,0,1,0,1,0,1)
+          window_size = len(pattern)
+          for i in range(len(frame_flat) - window_size + 1):
+              # Check if the elements in the current window match the pattern
+              if np.array_equal(frame_flat[i:i+window_size], pattern):
+                  print(i)
+                  break
+        else:
+
+
+          # Assume that base64_image_string is your base64 string
+          #base64_image_string  = serialdevice.readline()
+          lineBreakLength = 2
+          base64_image_string  = serialdevice.read(base64_length+lineBreakLength)
+
+          image_bytes = base64.b64decode(base64_image_string)
+          image_1d = np.frombuffer(image_bytes, dtype=np.uint8)
+          image_2d = image_1d.reshape(240, 320)
+
+          # Convert the image into a numpy array for further processing
+          frame = np.array(image_2d)
 
 
         print("framerate: "+(str(1/(time.time()-t0))))
@@ -81,7 +109,7 @@ while True:
             break
         cv2.imshow("image", frame)
     
-        frame = np.mean(frame,-1)
+        #frame = np.mean(frame,-1)
         #cv2.waitKey(-1)
         #plt.imshow(image), plt.show()
         #serialdevice.flushInput()
@@ -95,7 +123,7 @@ while True:
       iError += 1
       #serialdevice.reset_input_buffer()
       # reset device here 
-      if iError % 20:
+      if not iError % 20 and iError >1:
             try:
                 # close the device - similar to hard reset
                 serialdevice.setDTR(False)
@@ -106,7 +134,7 @@ while True:
                 time.sleep(.5)
                 #serialdevice.close()
             except Exception as e: pass
-            serialdevice = connect_to_usb_device()
+            #serialdevice = connect_to_usb_device()
             nTrial = 0
       
     

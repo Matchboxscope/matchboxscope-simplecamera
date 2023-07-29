@@ -173,7 +173,16 @@ void grabImage()
 
     // String encoded = base64::encode(fb->buf, fb->len);
     // Serial.write(encoded.c_str(), encoded.length());
-    Serial.write(fb->buf, fb->len);
+    if(0){
+      Serial.write(fb->buf, fb->len);
+    }
+    else{
+        // Encode the buffer in base64 and send it
+      String encoded = base64::encode((uint8_t*)fb->buf, fb->len);
+      Serial.println(encoded);
+      //free(encoded); // Remember to free the encoded buffer after using it
+
+    }d0
     //Serial.println();
   }
 
