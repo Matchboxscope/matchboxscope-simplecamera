@@ -39,19 +39,25 @@ def search_sequence_numpy(arr,seq):
     M = (arr[np.arange(Na-Nseq+1)[:,None] + r_seq] == seq).all(1)
 
     # Get the range of those indices as final output
-    if M.any() >0:
-        return np.where(np.convolve(M,np.ones((Nseq),dtype=int))>0)[0][0]
+    if M.any() >0 and M.any():
+        positionList =  np.where(np.convolve(M,np.ones((Nseq),dtype=int))>0)[0]
+        if len(positionList) == Nseq:
+              return positionList[0]
+        else:
+              return -1
     else:
-        return 0         # No match found
+        return -1        # No match found
     
-def connect_to_usb_device(manufacturer="Espressif"):
+def connect_to_usb_device(manufacturer="Espressif", timeout=1):
     ports = serial.tools.list_ports.comports()
     for port in ports:
         if port.manufacturer == manufacturer or port.manufacturer == "Microsoft":
             try:
-                ser = serial.Serial(port.device, baudrate=2000000, timeout=1)
+                # ATTENTION: Windows does not like a higher BAUDRATE than 100000
+                ser = serial.Serial(port.device, baudrate=2000000, timeout=timeout)
                 print(f"Connected to device: {port.description}")
-                ser.write_timeout = 1
+                ser.write_timeout = timeout
+                time.sleep(.5)
                 return ser
             except serial.SerialException:
                 print(f"Failed to connect to device: {port.description}")
@@ -76,51 +82,60 @@ imageString = ""
 
 serialdevice.write(('t10\n').encode())
 serialdevice.readline()
-
+frame_size = 320 * 240
+syncPatternPosition = 38684
 while True:
   try:
         #read image and decode
         #serialdevice.write(b"")
         serialdevice.write(('\n').encode())
         # don't read to early
-        time.sleep(.05)
-        #serialdevice.flushInput()
-        #serialdevice.flushOutput()
-        
-        #imageB64 = serialdevice.readline()
-        
+        time.sleep(.01)
+
         # Read a frame from the serial port
-        frame_size = 320 * 240
         frame_bytes = serialdevice.read(frame_size)
-        
+
         # Convert the bytes to a numpy array
         frame_flat = np.frombuffer(frame_bytes, dtype=np.uint8)
-
+        
         # find 0,1,0,1... pattern to sync
         pattern = (0,1,0,1,0,1,0,1,0,1)
         
         indexPattern = search_sequence_numpy(frame_flat,pattern)
 
-        frame_flat_shifted =  np.roll(frame_flat,-indexPattern)
-        print(indexPattern)
+        if indexPattern >=0:
 
-        # reshape into 2D image
-        frame = np.zeros(320*240, dtype=np.uint8)
-        frame[0:frame_flat_shifted.shape[0]]=frame_flat_shifted
-        frame = frame.reshape((240, 320))
-        print("framerate: "+(str(1/(time.time()-t0))))
+          frame_flat_shifted =  np.roll(frame_flat,-indexPattern)
+          #print(indexPattern)
+
+          # reshape into 2D image
+          frame = np.zeros(frame_size, dtype=np.uint8)
+          frame[0:frame_flat_shifted.shape[0]]=frame_flat_shifted
+          pattern = (0,1,2,0,1,2,0,1,2,0)
         
-        t0 = time.time()
+          indexPattern = search_sequence_numpy(frame_flat,pattern)
+          print(indexPattern)
+          if 1:# indexPattern == syncPatternPosition:
+            frame = frame.reshape((240, 320))
+            t0 = time.time()
+            cv2.imshow("image", frame)
+            if cv2.waitKey(25) & 0xFF == ord('q'):
+                break    
+            #frame = np.mean(frame,-1)
+            #cv2.waitKey(-1)
+            #plt.imshow(image), plt.show()
+            #serialdevice.flushInput()
+            #serialdevice.flushOutput()
+            #tif.imsave("test_stack_esp32.tif", image, append=True)
+          else:
+              # skip frame and restart device
+              serialdevice.write(('r\n').encode())
+              serialdevice.readline()
+              time.sleep(.4)
 
-        cv2.imshow("image", frame)
-        if cv2.waitKey(25) & 0xFF == ord('q'):
-            break    
-        #frame = np.mean(frame,-1)
-        #cv2.waitKey(-1)
-        #plt.imshow(image), plt.show()
-        #serialdevice.flushInput()
-        #serialdevice.flushOutput()
-        #tif.imsave("test_stack_esp32.tif", image, append=True)
+
+
+        
   except Exception as e:
       print("Error")
       print(e)
@@ -332,4 +347,3 @@ void grabImage()
   esp_camera_fb_return(fb);
 }
 '''
-# %%

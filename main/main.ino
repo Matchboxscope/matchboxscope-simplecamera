@@ -33,12 +33,6 @@ void setup()
   cameraInit();
 }
 
-int Nx = 320;
-int Ny = 240;
-int Nroi = 50;
-int x = 320 / 2;
-int y = 240 / 2;
-bool isStreaming = true;
 
 /* setting expsorue time: t1000
 setting gain: g1
@@ -71,6 +65,15 @@ void loop()
       s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
       s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
       s->set_agc_gain(s, value);  // set gain manually (0 - 30)
+    }
+    else if (command.length() > 0 && command.charAt(0) == 'd')
+    {
+      // return buffer length
+      camera_fb_t *fb = NULL;
+      fb = esp_camera_fb_get();
+
+      Serial.println(fb->len);
+       esp_camera_fb_return(fb);
     }
     else if (command.length() > 0 && command.charAt(0) == 'r')
     {
@@ -130,7 +133,7 @@ void cameraInit()
   config.pixel_format = PIXFORMAT_GRAYSCALE; // PIXFORMAT_JPEG;
   config.frame_size = FRAMESIZE_QVGA;        // for streaming}
 
-  config.fb_count = 1;
+  config.fb_count = 2;
 
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK)
@@ -168,6 +171,15 @@ void grabImage()
     // (actually something funky goes on here: We don't even need to align for that on the client side if we introduce these pixels..)
     for(int i = 0; i < 10; i++){
     fb->buf[i] = i % 2;  // Alternates between 0 and 1
+    }
+    // add tail to create some kind of check pattern
+    for(int i = 0; i < 10; i++){ // for some very weird reason this seems to stabilize any frame missyncing on Windows - absolutely no clue - this does not even need to be decoded or backshifted?! Just its existence is enough?!!!
+    fb->buf[i+ fb->len/2-10] = i%3;  // Alternates between 0 and 1
+    }
+
+    // add tail to create some kind of check pattern
+    for(int i = 0; i < 10; i++){
+    fb->buf[i+ fb->len-10] = 1;  // Alternates between 0 and 1
     }
     // delay(40);
 
