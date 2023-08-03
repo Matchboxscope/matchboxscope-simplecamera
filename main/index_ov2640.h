@@ -32,6 +32,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
         <img alt="ImJoy" src="https://ij.imjoy.io/assets/badge/open-in-imagej-js-badge.svg" style="float:left;" /></a></span>
         <button id="send-imjoy" style="float:left;">To ImJoy</button>
         <button id="toggle-stream" style="float:left;" class="hidden">Start Stream</button>
+        <button id="open-gallery" style="float:left;">Gallery</button>
         <div id="wait-settings" style="float:left;" class="loader" title="Waiting for camera settings to load"></div>
       </div>
       <div id="content">
@@ -353,10 +354,9 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
               </div>
               <div class="input-group" id="images_served-group">
                 <label for="images_served">
-                <a href="/dump" title="System Info" target="_blank">Name</a></label>
+                <a href="/dump" title="System Info" target="_blank">Images Served</a></label>
                 <div id="images_served" class="default-action"></div>
               </div>              
-              sdcard
               <div class="input-group" id="code_ver-group">
                 <label for="code_ver">
                 <a href="https://github.com/easytarget/esp32-cam-webserver"
@@ -404,6 +404,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const view = document.getElementById('stream')
     const viewContainer = document.getElementById('stream-container')
     const stillButton = document.getElementById('get-still')
+    const galleryButton = document.getElementById('open-gallery')
     const githubButton = document.getElementById('send-github')
     const imjoyButton = document.getElementById('send-imjoy')
     const streamButton = document.getElementById('toggle-stream')
@@ -611,6 +612,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     stillButton.setAttribute("title", `Capture a still image :: ${baseHost}/capture`);
     githubButton.setAttribute("title", `Upload a still image to Github :: ${baseHost}/uploadgithub`);
     imjoyButton.setAttribute("title", `Upload a still image to ImJoy :: ${baseHost}/uploadimjoy`);
+    galleryButton.setAttribute("title", `View the gallery :: ${baseHost}/gallery`);
     
 
     const stopStream = () => {
@@ -669,6 +671,11 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
 
       // Trigger the download
       link.click();
+    }
+
+    galleryButton.onclick = () => {
+      stopStream();
+      window.open(`${baseHost}/gallery`, "_blank");
     }
     
     githubButton.onclick = () => {

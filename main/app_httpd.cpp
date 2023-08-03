@@ -34,6 +34,7 @@
 #include "index_ov3660.h"
 #include "index_other.h"
 #include "index_holo.h"
+#include "index_gallery.h"
 #include "css.h"
 #include "favicons.h"
 #include "logo.h"
@@ -87,11 +88,11 @@ extern int sdInitialized;
 extern bool isTimelapseGeneral;
 extern bool isStack;
 
-
 bool IS_STREAM_PAUSE = false;
 
 extern int timelapseInterval;
 extern bool sendToGithubFlag;
+const char *indexFileName = "/index.txt";
 typedef struct
 {
     httpd_req_t *req;
@@ -257,7 +258,6 @@ static esp_err_t capture_handler(httpd_req_t *req)
             setLamp(0);
         return ESP_FAIL;
     }
-    log_d("Acquire second frame");
     // camera_fb_t* fb = convolution(fb_);
 
     httpd_resp_set_type(req, "image/jpeg");
@@ -280,7 +280,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
     fb = NULL;
 
     // save to SD card if existent
-    String filename = "/image" + String(imagesServed) + ".jpg";
+    String filename = "/image" + String(imagesServed);
     saveImage(filename);
 
     int64_t fr_end = esp_timer_get_time();
@@ -423,7 +423,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
         setLamp(0);
     Serial.println("Stream ended");
     last_frame = 0;
-    IS_STREAMING = false; 
+    IS_STREAMING = false;
     return res;
 }
 
@@ -713,7 +713,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.print("Moving focus down");
         Serial.println(val);
         moveFocus(val);
-    }    
+    }
     else if (!strcmp(variable, "focusSlider"))
     {
         Serial.print("Moving focus at speed");
@@ -722,7 +722,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     }
     else if (!strcmp(variable, "pwm") && (pwmVal != -1))
     {
-        pwmVal = val; //constrain(val, 0, 100);
+        pwmVal = val; // constrain(val, 0, 100);
         setPWMVal(SPIFFS, pwmVal);
         setPWM(pwmVal);
     }
@@ -1189,6 +1189,101 @@ static esp_err_t uploadgithub_handler(httpd_req_t *req)
     return 0;
 }
 
+// HTTP handler to serve the file for download
+// e.g. http://192.168.4.1/downloadfile?filename=image661.jpg
+esp_err_t downloadfile_handler(httpd_req_t *req) {
+    log_d("Downloading file");
+    log_d("Request URI: %s", req->uri);
+
+    char filename[128];
+    size_t filename_len = httpd_req_get_url_query_len(req) + 1;
+    log_d("filename_len %i", filename_len);
+    if (filename_len > 1) {
+        char* buf = (char*)malloc(filename_len);
+        log_d("filename: %c", buf);
+        if (httpd_req_get_url_query_str(req, buf, filename_len) == ESP_OK) {
+            if (httpd_query_key_value(buf, "filename", filename, sizeof(filename)) == ESP_OK) {
+                free(buf);
+
+                #if defined(CAMERA_MODEL_AI_THINKER)
+                    fs::FS &fs = SD_MMC;
+                #elif defined(CAMERA_MODEL_XIAO)
+                    fs::FS &fs = SD;
+                #endif
+                String filePath = "/" + String(filename);
+                log_d("Download file path: %s", filePath.c_str());
+                File file = fs.open(filePath);
+                if (!file) {
+                    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+                    return ESP_FAIL;
+                }
+
+                httpd_resp_set_type(req, "application/octet-stream");
+                httpd_resp_set_hdr(req, "Content-Disposition", ("attachment; filename=" + String(filename)).c_str());
+                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+                const size_t bufferSize = 512;
+                uint8_t buffer[bufferSize];
+                size_t bytesRead;
+
+                while ((bytesRead = file.read(buffer, sizeof(buffer))) > 0) {
+                    if (httpd_resp_send_chunk(req, (const char*)buffer, bytesRead) != ESP_OK) {
+                        file.close();
+                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "File download failed");
+                        return ESP_FAIL;
+                    }
+                }
+
+                file.close();
+                httpd_resp_send_chunk(req, NULL, 0); // Send the last chunk to close the stream
+                return ESP_OK;
+            }
+        }
+        free(buf);
+    }
+
+    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid request");
+    return ESP_FAIL;
+}
+
+static esp_err_t files_handler(httpd_req_t *req)
+{
+// Scanning files on the SD card
+#if defined(CAMERA_MODEL_AI_THINKER)
+    fs::FS &fs = SD_MMC;
+#elif defined(CAMERA_MODEL_XIAO)
+    fs::FS &fs = SD;
+#endif
+
+    File file = fs.open(indexFileName);
+    if (!file)
+    {
+        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+        return ESP_FAIL;
+    }
+
+    httpd_resp_set_type(req, "text/plain");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+    const size_t bufferSize = 512;
+    uint8_t buffer[bufferSize];
+    size_t bytesRead;
+
+    while ((bytesRead = file.read(buffer, sizeof(buffer))) > 0)
+    {
+        if (httpd_resp_send_chunk(req, (const char *)buffer, bytesRead) != ESP_OK)
+        {
+            file.close();
+            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "File streaming failed");
+            return ESP_FAIL;
+        }
+    }
+
+    file.close();
+    httpd_resp_send_chunk(req, NULL, 0); // Send the last chunk to close the stream
+    return ESP_OK;
+}
+
 static esp_err_t anglerfish_handler(httpd_req_t *req)
 {
 
@@ -1338,10 +1433,18 @@ static esp_err_t holo_handler(httpd_req_t *req)
     return httpd_resp_send(req, (const char *)index_holo_html, index_holo_html_len);
 }
 
+static esp_err_t gallery_handler(httpd_req_t *req)
+{
+    Serial.println("Gallery index page requested");
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
+    return httpd_resp_send(req, (const char *)index_gallery_html, index_gallery_html_len);
+}
+
 void startCameraServer(int hPort, int sPort)
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 16; // we use more than the default 8 (on port 80)
+    config.max_uri_handlers = 20; // we use more than the default 8 (on port 80)
 
     httpd_uri_t index_uri = {
         .uri = "/",
@@ -1352,6 +1455,11 @@ void startCameraServer(int hPort, int sPort)
         .uri = "/holo",
         .method = HTTP_GET,
         .handler = holo_handler,
+        .user_ctx = NULL};
+    httpd_uri_t index_gallery_html_uri = {
+        .uri = "/gallery",
+        .method = HTTP_GET,
+        .handler = gallery_handler,
         .user_ctx = NULL};
     httpd_uri_t status_uri = {
         .uri = "/status",
@@ -1438,6 +1546,16 @@ void startCameraServer(int hPort, int sPort)
         .method = HTTP_GET,
         .handler = error_handler,
         .user_ctx = NULL};
+    httpd_uri_t files_uri = {
+        .uri = "/files",
+        .method = HTTP_GET,
+        .handler = files_handler,
+        .user_ctx = NULL};
+    httpd_uri_t downloadfile_uri = {
+        .uri = "/downloadfile",
+        .method = HTTP_GET,
+        .handler = downloadfile_handler,
+        .user_ctx = NULL};
     httpd_uri_t uploadgithub_uri = {
         .uri = "/uploadgithub",
         .method = HTTP_GET,
@@ -1466,6 +1584,7 @@ void startCameraServer(int hPort, int sPort)
             httpd_register_uri_handler(camera_httpd, &status_uri);
             httpd_register_uri_handler(camera_httpd, &capture_uri);
             httpd_register_uri_handler(camera_httpd, &index_holo_html_uri);
+            httpd_register_uri_handler(camera_httpd, &index_gallery_html_uri);
         }
 
         httpd_register_uri_handler(camera_httpd, &style_uri);
@@ -1478,7 +1597,8 @@ void startCameraServer(int hPort, int sPort)
         httpd_register_uri_handler(camera_httpd, &uploadgithub_uri);
         httpd_register_uri_handler(camera_httpd, &mac_uri);
         httpd_register_uri_handler(camera_httpd, &anglerfish_uri);
-        httpd_register_uri_handler(camera_httpd, &bitmap_uri);
+        httpd_register_uri_handler(camera_httpd, &files_uri);
+        httpd_register_uri_handler(camera_httpd, &downloadfile_uri);
     }
 
     config.server_port = sPort;
@@ -1572,7 +1692,7 @@ bool saveImage(String filename, int pwmVal)
 #if defined(CAMERA_MODEL_AI_THINKER)
         fs::FS &fs = SD_MMC;
 #elif defined(CAMERA_MODEL_XIAO)
-// https://github.com/limengdu/SeeedStudio-XIAO-ESP32S3-Sense-camera/blob/56580ab8e438d82a91fcbe47a8412cf9d29a6b76/take_photos/take_photos.ino#L33
+                  // https://github.com/limengdu/SeeedStudio-XIAO-ESP32S3-Sense-camera/blob/56580ab8e438d82a91fcbe47a8412cf9d29a6b76/take_photos/take_photos.ino#L33
         fs::FS &fs = SD;
 #endif
         String extension = ".jpg";
@@ -1593,6 +1713,24 @@ bool saveImage(String filename, int pwmVal)
             Serial.println("Saved " + filename);
         }
         imgFile.close();
+
+        File indexFile;
+        if (!fs.exists(indexFileName))
+        {
+            // create index file
+            log_d("Creating %s", indexFileName);
+            indexFile = fs.open(indexFileName, FILE_WRITE);
+        }
+        else
+        {
+            log_d("Appending to %s", indexFileName);
+            indexFile = fs.open(indexFileName, FILE_APPEND);
+        }
+
+        // Append a string to the file
+        log_d("Writing to index.txt - %s", filename + extension);
+        indexFile.println(filename);
+        indexFile.close();
 
         // reset frame buffer
         esp_camera_fb_return(fb);
