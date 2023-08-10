@@ -33,6 +33,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
         <button id="send-imjoy" style="float:left;">To ImJoy</button>
         <button id="toggle-stream" style="float:left;" class="hidden">Start Stream</button>
         <button id="open-gallery" style="float:left;">Gallery</button>
+        <button id="open-holo" style="float:left;">Holo</button>
         <div id="wait-settings" style="float:left;" class="loader" title="Waiting for camera settings to load"></div>
       </div>
       <div id="content">
@@ -405,6 +406,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const viewContainer = document.getElementById('stream-container')
     const stillButton = document.getElementById('get-still')
     const galleryButton = document.getElementById('open-gallery')
+    const holoButton = document.getElementById('open-holo')
     const githubButton = document.getElementById('send-github')
     const imjoyButton = document.getElementById('send-imjoy')
     const streamButton = document.getElementById('toggle-stream')
@@ -613,6 +615,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     githubButton.setAttribute("title", `Upload a still image to Github :: ${baseHost}/uploadgithub`);
     imjoyButton.setAttribute("title", `Upload a still image to ImJoy :: ${baseHost}/uploadimjoy`);
     galleryButton.setAttribute("title", `View the gallery :: ${baseHost}/gallery`);
+    holoButton.setAttribute("title", `View the holo gallery :: ${baseHost}/holo`);
     
 
     const stopStream = () => {
@@ -676,6 +679,11 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     galleryButton.onclick = () => {
       stopStream();
       window.open(`${baseHost}/gallery`, "_blank");
+    }
+
+    holoButton.onclick = () => {
+      stopStream();
+      window.open(`${baseHost}/holo`, "_blank");
     }
     
     githubButton.onclick = () => {

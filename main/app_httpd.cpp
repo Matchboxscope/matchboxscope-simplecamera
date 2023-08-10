@@ -337,6 +337,10 @@ static esp_err_t stream_handler(httpd_req_t *req)
         res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
     }
 
+    // handle timout from browser
+    int64_t last_successful_frame_time = esp_timer_get_time();
+    const int64_t TIMEOUT_THRESHOLD = 2000000; // 2 seconds in microseconds
+
     while (true)
     {
 
@@ -380,6 +384,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
         if (res == ESP_OK)
         {
             res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
+            last_successful_frame_time = esp_timer_get_time(); // Update the time when a frame is successfully sent
         }
         if (res == ESP_OK)
         {
@@ -415,6 +420,12 @@ static esp_err_t stream_handler(httpd_req_t *req)
         delay(frame_delay);
 
         last_frame = esp_timer_get_time();
+        int64_t current_time = esp_timer_get_time();
+        if (current_time - last_successful_frame_time > TIMEOUT_THRESHOLD)
+        {
+            Serial.printf("Stream timeout\r\n");
+            break; // End the stream if the timeout threshold is exceeded
+        }
     }
 
     streamsServed++;
@@ -1191,29 +1202,34 @@ static esp_err_t uploadgithub_handler(httpd_req_t *req)
 
 // HTTP handler to serve the file for download
 // e.g. http://192.168.4.1/downloadfile?filename=image661.jpg
-esp_err_t downloadfile_handler(httpd_req_t *req) {
+esp_err_t downloadfile_handler(httpd_req_t *req)
+{
     log_d("Downloading file");
     log_d("Request URI: %s", req->uri);
 
     char filename[128];
     size_t filename_len = httpd_req_get_url_query_len(req) + 1;
     log_d("filename_len %i", filename_len);
-    if (filename_len > 1) {
-        char* buf = (char*)malloc(filename_len);
+    if (filename_len > 1)
+    {
+        char *buf = (char *)malloc(filename_len);
         log_d("filename: %c", buf);
-        if (httpd_req_get_url_query_str(req, buf, filename_len) == ESP_OK) {
-            if (httpd_query_key_value(buf, "filename", filename, sizeof(filename)) == ESP_OK) {
+        if (httpd_req_get_url_query_str(req, buf, filename_len) == ESP_OK)
+        {
+            if (httpd_query_key_value(buf, "filename", filename, sizeof(filename)) == ESP_OK)
+            {
                 free(buf);
 
-                #if defined(CAMERA_MODEL_AI_THINKER)
-                    fs::FS &fs = SD_MMC;
-                #elif defined(CAMERA_MODEL_XIAO)
-                    fs::FS &fs = SD;
-                #endif
+#if defined(CAMERA_MODEL_AI_THINKER)
+                fs::FS &fs = SD_MMC;
+#elif defined(CAMERA_MODEL_XIAO)
+                fs::FS &fs = SD;
+#endif
                 String filePath = "/" + String(filename);
                 log_d("Download file path: %s", filePath.c_str());
                 File file = fs.open(filePath);
-                if (!file) {
+                if (!file)
+                {
                     httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
                     return ESP_FAIL;
                 }
@@ -1226,8 +1242,10 @@ esp_err_t downloadfile_handler(httpd_req_t *req) {
                 uint8_t buffer[bufferSize];
                 size_t bytesRead;
 
-                while ((bytesRead = file.read(buffer, sizeof(buffer))) > 0) {
-                    if (httpd_resp_send_chunk(req, (const char*)buffer, bytesRead) != ESP_OK) {
+                while ((bytesRead = file.read(buffer, sizeof(buffer))) > 0)
+                {
+                    if (httpd_resp_send_chunk(req, (const char *)buffer, bytesRead) != ESP_OK)
+                    {
                         file.close();
                         httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "File download failed");
                         return ESP_FAIL;
