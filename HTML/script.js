@@ -5,7 +5,60 @@ function calculateBase64Length(width, height) {
     return base64Length +2;
 }
 
-function base64ToImage(base64String) {
+function pixelsToPng(pixelData, width, height) {
+    // Create a canvas element
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+
+    // Create a blank ImageData object
+    const imageData = ctx.createImageData(width, height);
+
+    // Assuming pixelData is a 2D array with grayscale values (0-255)
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            // Calculate the index in the imageData.data array
+            const index = (y * width + x) * 4; // 4 components: R, G, B, A
+
+            // Set the RGB values to the grayscale value
+            imageData.data[index] = pixelData[y][x];    // R
+            imageData.data[index + 1] = pixelData[y][x]; // G
+            imageData.data[index + 2] = pixelData[y][x]; // B
+
+            // Set alpha to fully opaque
+            imageData.data[index + 3] = 255; // A
+        }
+    }
+
+    // Draw the image data to the canvas
+    ctx.putImageData(imageData, 0, 0);
+
+    // Get PNG data URL
+    const pngDataUrl = canvas.toDataURL('image/png');
+
+    return pngDataUrl;
+}
+
+
+function reshapeTo2D(array1D, width, height) {
+    let image2D = [];
+
+    for (let y = 0; y < height; y++) {
+        let row = [];
+        for (let x = 0; x < width; x++) {
+            let index = y * width + x;
+            row.push(array1D[index]);
+        }
+        image2D.push(row);
+    }
+
+    return image2D;
+}
+
+  
+
+function base64ToImage(base64String, width, height) {
     // Convert base64 string to byte array
     const byteCharacters = atob(base64String);
     const byteNumbers = new Array(byteCharacters.length);
@@ -13,7 +66,9 @@ function base64ToImage(base64String) {
         byteNumbers[i] = byteCharacters.charCodeAt(i);
     }
     const byteArray = new Uint8Array(byteNumbers);
-    
+    // Convert byte array to image
+  
+
     return byteArray;
 }
 
@@ -105,16 +160,13 @@ document.getElementById('connectButton').addEventListener('click', async () => {
                 const base64Image = await readFromDevice(serialDevice, 320, 240);
                 console.log(`Received: ${base64Image}`);
 
-                const imageBytes = base64ToImage(base64Image);
+                const imageBytes = base64ToImage(base64Image, width, height);
+                let image2D = reshapeTo2D(imageBytes, width, height);
+                
+                // Display in an img element, for example:
+                const imageElement = document.getElementById('serialImage');
+                imageElement.src = pixelsToPng(image2D, width, height);
 
-                // You now have a Uint8Array representing the image. 
-                // If you want to display this image, you can convert it to a blob and set it as a src of an img tag
-                const blob = new Blob([imageBytes], { type: "image/png" }); // Assuming it's a PNG image. Adjust if necessary.
-                const imageUrl = URL.createObjectURL(blob);
-                document.getElementById('serialImage').src = imageUrl;            
-                //await new Promise(resolve => setTimeout(resolve, 500));
-                //const imageElement = document.getElementById('serialImage');
-                //imageElement.src = `data:image/png;base64,${base64Image}`;
 
                 if (waitForNextFrame) {
                     waitForNextFrame = false;
