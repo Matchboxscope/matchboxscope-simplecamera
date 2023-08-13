@@ -179,6 +179,7 @@ int pwmChannel = 5;
 #elif defined(CAMERA_MODEL_XIAO)
 int lampChannel = 1; // a free PWM channel (some channels used by camera)
 int pwmChannel = 2;
+int enableChannel = 3;
 #endif
 const int pwmfreq = 50000;   // 50K pwm frequency
 const int pwmresolution = 9; // duty cycle bit range
@@ -843,16 +844,17 @@ void setup()
 
 #if defined(CAMERA_MODEL_XIAO)
   // setup stepper
-  digitalWrite(STEPPER_MOTOR_DIR, HIGH);
+  ledcSetup(enableChannel, pwmfreq, pwmresolution); 
+  ledcAttachPin(STEPPER_MOTOR_ENABLE, enableChannel);
+  ledcWrite(enableChannel, 0);
 
   motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
   motor.setAcceleration(1000);
   motor.setSpeed(STEPPER_MOTOR_SPEED);
-  pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
-  digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
-  motor.runToNewPosition(5);
-  motor.runToNewPosition(-5);
-  digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+  motor.runToNewPosition(100);
+  motor.runToNewPosition(-100);
+  ledcWrite(enableChannel, 255);
+  
 #endif
 
   // actions done on first boot
@@ -874,6 +876,7 @@ void setup()
     // reset anglerfishmode
     setIsTimelapseAnglerfish(false);
     setSerialFrameEnabled(false);
+    setFrameIndex(SPIFFS, 0);
   }
   // declare LED PIN
   pinMode(LED_PIN, OUTPUT);
@@ -985,6 +988,8 @@ void setup()
   imagesServed = getFrameIndex(SPIFFS);
   timelapseInterval = getTimelapseInterval(SPIFFS);
 
+
+
   // Initialise and set the lamp
   ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
   ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
@@ -1004,6 +1009,7 @@ void setup()
   delay(30);
   ledcWrite(pwmChannel, 0); // set default value to center so that focus or pump are in ground state
 #endif
+
 
   // test LEDs
   // visualize we are "on"
@@ -1034,6 +1040,7 @@ void setup()
   // WIFI-related settings
   Serial.println("...............");
   // start wifi AP or connect to AP
+  
   initWifi();
 
   // propagate URLs to GUI
@@ -1178,6 +1185,14 @@ void loop()
       ArduinoOTA.handle();
 
 #ifdef CAMERA_MODEL_XIAO
+    if (motor.speed() == 0 or motor.isRunning() ==0)
+    {
+      ledcWrite(enableChannel, 255);
+    }
+    else
+    {
+      ledcWrite(enableChannel, 0);
+    }
     motor.runSpeed();
 #endif
   }
@@ -1564,24 +1579,28 @@ void set_error(improv::Error error)
 }
 
 bool isMotorRunning = false;
+
 // move focus using accelstepper
 void moveFocus(int steps)
 {
 #ifdef CAMERA_MODEL_XIAO
+
   if (not isMotorRunning)
   {
+
+    ledcWrite(enableChannel, 0);
+    log_i("Moving focus %d steps", steps);
     isMotorRunning = true;
-    digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
     // run motor to new position with relative movement
     motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
     motor.setAcceleration(1000);
     motor.setSpeed(STEPPER_MOTOR_SPEED);
     motor.move(steps);
-    while (motor.distanceToGo() != 0)
+    while (motor.distanceToGo() != 0 )
     {
       motor.run();
     }
-    //  digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+    ledcWrite(enableChannel, 255);
     isMotorRunning = false;
     motor.setSpeed(0);
   }
