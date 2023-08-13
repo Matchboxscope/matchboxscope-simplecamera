@@ -15,7 +15,7 @@
 #include "improv.h"
 #include "spinlock.h"
 #include "anglerfishcamsettings.h"
-
+#include <base64.h>
 
 // #define NEOPIXEL
 #define NUMPIXELS 16
@@ -107,6 +107,8 @@ int streamPort = 81;
 // settings for ssid/pw if updated from serial
 const char *mssid = "Blynk"; // default values
 const char *mpassword = "12345678";
+
+bool isSerialTransferMode = false;
 
 #ifdef NEOPIXEL
 #include <Adafruit_NeoPixel.h>
@@ -302,16 +304,14 @@ String getThreeDigitID()
 
   // Combine the MAC address bytes into a single 32-bit integer
   uint32_t combined_mac = (mac_address[0] << 24) |
-                         (mac_address[1] << 16) |
-                         (mac_address[2] << 8) |
-                         mac_address[3];
+                          (mac_address[1] << 16) |
+                          (mac_address[2] << 8) |
+                          mac_address[3];
 
   // Take the modulo with 100000 to get a 5-digit number
   uint32_t five_digit_number = combined_mac % 100000;
 
-
   return String(five_digit_number);
-
 }
 
 void initWifi()
@@ -558,29 +558,47 @@ bool StartCamera()
   config.fb_location = CAMERA_FB_IN_PSRAM;
   config.jpeg_quality = 12;
   config.fb_count = 1;
-  if (config.pixel_format == PIXFORMAT_JPEG)
+  if (not getSerialFrameEnabled())
   {
-    if (psramFound())
+    log_i("Serial Frame Disabled");
+    if (config.pixel_format == PIXFORMAT_JPEG)
     {
-      config.jpeg_quality = 10;
-      config.fb_count = 2;
-      config.grab_mode = CAMERA_GRAB_LATEST;
+      if (psramFound())
+      {
+        config.jpeg_quality = 10;
+        config.fb_count = 2;
+        config.grab_mode = CAMERA_GRAB_LATEST;
+      }
+      else
+      {
+        // Limit the frame size when PSRAM is not available
+        config.frame_size = FRAMESIZE_SVGA;
+        config.fb_location = CAMERA_FB_IN_DRAM;
+      }
     }
     else
     {
-      // Limit the frame size when PSRAM is not available
-      config.frame_size = FRAMESIZE_SVGA;
-      config.fb_location = CAMERA_FB_IN_DRAM;
+      // Best option for face detection/recognition
+      config.frame_size = FRAMESIZE_240X240;
+#if CONFIG_IDF_TARGET_ESP32S3
+      config.fb_count = 2;
+#endif
     }
   }
   else
   {
-    // Best option for face detection/recognition
-    config.frame_size = FRAMESIZE_240X240;
-#if CONFIG_IDF_TARGET_ESP32S3
-    config.fb_count = 2;
-#endif
+    log_i("Serial Frame Enabled");
+    config.xclk_freq_hz = 20000000;
+    config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
+    config.fb_location = CAMERA_FB_IN_PSRAM;
+    config.jpeg_quality = 12;
+    log_i("Changing pixel format to grayscale...");
+    config.pixel_format = PIXFORMAT_GRAYSCALE; // PIXFORMAT_JPEG;
+    config.frame_size = FRAMESIZE_QVGA;        // for streaming}
+
+    config.fb_count = 1;
   }
+
 #endif
 
   // camera init
@@ -651,6 +669,19 @@ bool StartCamera()
       s->set_vflip(s, 1);       // flip it back
       s->set_brightness(s, 1);  // up the blightness just a bit
       s->set_saturation(s, -2); // lower the saturation
+    }
+
+    if (isSerialTransferMode)
+    {
+      sensor_t *s = esp_camera_sensor_get();
+      s->set_hmirror(s, 1);
+      s->set_vflip(s, 1);
+
+      // enable manual camera settings
+      s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
+      s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
+      s->set_aec_value(s, 100);   // set exposure manually (0-1200)
+      s->set_agc_gain(s, 0);      // set gain manually (0 - 30)
     }
 
     /*
@@ -752,8 +783,23 @@ int get_mean_intensity(camera_fb_t *fb)
 
 void setup()
 {
-  // Start Serial
-  Serial.begin(115200);
+  // check if we want to transfer images via serial or not
+  isSerialTransferMode = getSerialFrameEnabled();
+  if (isSerialTransferMode)
+  {
+    // Start Serial
+    Serial.begin(2000000);
+    Serial.println("Serial transfer mode enabled");
+    Serial.setTimeout(20);
+    Serial.println("Go to this website, connect the camera and try it out yourself: https://matchboxscope.github.io/blog/SerialCamera");
+  }
+  else
+  {
+    // Start Serial
+    Serial.begin(115200);
+    Serial.println("Serial transfer mode disabled");
+    
+  }
 #ifdef NEOPIXEL
   for (int i = 0; i < NUMPIXELS; i++)
   {
@@ -797,16 +843,16 @@ void setup()
 
 #if defined(CAMERA_MODEL_XIAO)
   // setup stepper
-    digitalWrite(STEPPER_MOTOR_DIR, HIGH);
+  digitalWrite(STEPPER_MOTOR_DIR, HIGH);
 
-    motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
-    motor.setAcceleration(1000);
-    motor.setSpeed(STEPPER_MOTOR_SPEED);
-    pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
-    digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
-    motor.runToNewPosition(5);
-    motor.runToNewPosition(-5);
-    digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+  motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
+  motor.setAcceleration(1000);
+  motor.setSpeed(STEPPER_MOTOR_SPEED);
+  pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
+  digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+  motor.runToNewPosition(5);
+  motor.runToNewPosition(-5);
+  digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
 #endif
 
   // actions done on first boot
@@ -827,6 +873,7 @@ void setup()
 
     // reset anglerfishmode
     setIsTimelapseAnglerfish(false);
+    setSerialFrameEnabled(false);
   }
   // declare LED PIN
   pinMode(LED_PIN, OUTPUT);
@@ -976,6 +1023,11 @@ void setup()
     Serial.println("No Internal Filesystem, cannot load or save preferences");
   }
 
+  // if we only transfer images over serial, we don't need wifi
+  if (isSerialTransferMode)
+  {
+    return;
+  }
   // before we start the WIFI - check if we are in deep-sleep/anglerfishmode
   initAnglerfish(isTimelapseAnglerfish);
 
@@ -1022,74 +1074,113 @@ void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int 
 
 void loop()
 {
-  /*
+
+#if defined(CAMERA_MODEL_XIAO)
   if (Serial.available() > 0)
   {
-      uint8_t b = Serial.read();
-
-      if (parse_improv_serial_byte(x_position, b, x_buffer, onCommandCallback, onErrorCallback))
+    if (not isSerialTransferMode)
+    {
+      // change settings to serial transfer mode
+      isSerialTransferMode = true;
+      Serial.begin(2000000);
+      Serial.setTimeout(20);
+      setSerialFrameEnabled(1);
+      // we can only switch from JPEG to RAW after a restart
+      ESP.restart();
+      // TODO: Stop any stream on webservers
+    }
+    else
+    {
+      // Check for incoming serial commands
+      String command = Serial.readString(); // Read the command until a newline character is received
+      if (command.length() > 1 && command.charAt(0) == 't')
       {
-          x_buffer[x_position++] = b;
+        // exposure time
+        int value = command.substring(1).toInt(); // Extract the numeric part of the command and convert it to an integer
+        // Use the value as needed
+        // Apply manual settings for the camera
+        sensor_t *s = esp_camera_sensor_get();
+        s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
+        s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
+        s->set_aec_value(s, value); // set exposure manually (0-1200)
+      }
+      else if (command.length() > 1 && command.charAt(0) == 'g')
+      {
+        // gain
+        int value = command.substring(1).toInt(); // Extract the numeric part of the command and convert it to an integer
+
+        // Apply manual settings for the camera
+        sensor_t *s = esp_camera_sensor_get();
+        s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
+        s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
+        s->set_agc_gain(s, value);  // set gain manually (0 - 30)
+      }
+      else if (command.length() > 0 && command.charAt(0) == 'r')
+      {
+        // restart and switch back to JPEG mode
+        setSerialFrameEnabled(0);
+        ESP.restart();
       }
       else
       {
-          x_position = 0;
+        flushSerial();
+        // capture image and return
+        grabRawFrameBase64();
       }
-            for(int i = 0; i < 16; i++)
-    {
-      Serial.println(x_buffer[i]);
+      flushSerial();
     }
   }
-  */
+#endif
 
   // Timelapse Imaging
   // Perform timelapse imaging
   // timelapseInterval - will be changed by the httpd server
   // isTimelapseGeneral - will be changed by the httpd server //= getIsTimelapseGeneral(SPIFFS);
 
-  if (isTimelapseGeneral and timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
+  if (not isSerialTransferMode)
   {
-    writePrefsToSSpiffs(SPIFFS);
-    // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
-    log_d("Time to save a new image", timelapseInterval);
-    t_old = millis();
-    frameIndex = getFrameIndex(SPIFFS) + 1;
-
-    // turns on lamp automatically
-    // save to SD card if existent
-
-    String filename = "/timelapse_image_scope_" + String(uniqueID) + "_" + String(millis()) + "_" + String(imagesServed);
-    if (getAcquireStack(SPIFFS))
-    { // FIXME: We could have a switch in the GUI for this settig
-      // acquire a stack
-      // FIXME: decide which method to use..
-      log_d("Acquireing stack");
-      imagesServed++;
-      acquireFocusStack(filename, 10);
-    }
-    else
+    if (isTimelapseGeneral and timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
     {
-      // Acquire the image and save
-      imagesServed++;
-      int pwmVal = getPWMVal(SPIFFS);
-      saveImage(filename, pwmVal);
+      writePrefsToSSpiffs(SPIFFS);
+      // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
+      log_d("Time to save a new image", timelapseInterval);
+      t_old = millis();
+      frameIndex = getFrameIndex(SPIFFS) + 1;
+
+      // turns on lamp automatically
+      // save to SD card if existent
+
+      String filename = "/timelapse_image_scope_" + String(uniqueID) + "_" + String(millis()) + "_" + String(imagesServed);
+      if (getAcquireStack(SPIFFS))
+      { // FIXME: We could have a switch in the GUI for this settig
+        // acquire a stack
+        // FIXME: decide which method to use..
+        log_d("Acquireing stack");
+        imagesServed++;
+        acquireFocusStack(filename, 10);
+      }
+      else
+      {
+        // Acquire the image and save
+        imagesServed++;
+        int pwmVal = getPWMVal(SPIFFS);
+        saveImage(filename, pwmVal);
+      }
+
+      // set default lamp value for streaming
+      setLamp(lampVal);
+
+      // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
+      setFrameIndex(SPIFFS, frameIndex);
     }
 
-    // set default lamp value for streaming
-    setLamp(lampVal);
+    if (otaEnabled)
+      ArduinoOTA.handle();
 
-    // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
-    setFrameIndex(SPIFFS, frameIndex);
-  }
-
-  if (otaEnabled)
-    ArduinoOTA.handle();
-
-   #ifdef CAMERA_MODEL_XIAO
+#ifdef CAMERA_MODEL_XIAO
     motor.runSpeed();
-    #endif
-
-
+#endif
+  }
 }
 
 void loadAnglerfishCamSettings(int tExposure, int mGain)
@@ -1225,12 +1316,83 @@ void initAnglerfish(bool isTimelapseAnglerfish)
   }
 }
 
+void flushSerial()
+{
+  // flush serial
+  while (Serial.available() > 0)
+  {
+    char c = Serial.read();
+  }
+}
+
+void grabRawFrameBase64()
+{
+  camera_fb_t *fb = NULL;
+  fb = esp_camera_fb_get();
+
+  if (!fb || fb->format != PIXFORMAT_GRAYSCALE) // PIXFORMAT_JPEG)
+  {
+    Serial.println("Failed to capture image");
+    ESP.restart();
+  }
+  else
+  {
+    // Modify the first 10 pixels of the buffer to indicate framesync
+    // PRoblem: The reference frame will move over time at random places
+    // It'S not clear if this is an issue on the client or server side
+    // Solution: To align for it we intoduce a known pattern that we can search for
+    // in order to align for this on the client side
+    // (actually something funky goes on here: We don't even need to align for that on the client side if we introduce these pixels..)
+    for (int i = 0; i < 10; i++)
+    {
+      fb->buf[i] = i % 2; // Alternates between 0 and 1
+    }
+    // delay(40);
+
+    // String encoded = base64::encode(fb->buf, fb->len);
+    // Serial.write(encoded.c_str(), encoded.length());
+    if (0)
+    {
+      Serial.write(fb->buf, fb->len);
+    }
+    else
+    {
+      // Encode the buffer in base64 and send it
+      String encoded = base64::encode((uint8_t *)fb->buf, fb->len);
+      Serial.println(encoded);
+      // free(encoded); // Remember to free the encoded buffer after using it
+    }
+    // Serial.println();
+  }
+
+  esp_camera_fb_return(fb);
+}
+
 /*************+
  *
  * IMPROV
  *
  * ***********
  */
+/*
+  if (Serial.available() > 0)
+  {
+      uint8_t b = Serial.read();
+
+      if (parse_improv_serial_byte(x_position, b, x_buffer, onCommandCallback, onErrorCallback))
+      {
+          x_buffer[x_position++] = b;
+      }
+      else
+      {
+          x_position = 0;
+      }
+            for(int i = 0; i < 16; i++)
+    {
+      Serial.println(x_buffer[i]);
+    }
+  }
+  */
 
 std::vector<std::string> getLocalUrl()
 {
@@ -1401,33 +1563,34 @@ void set_error(improv::Error error)
   Serial.write(data.data(), data.size());
 }
 
-bool isMotorRunning=false;
+bool isMotorRunning = false;
 // move focus using accelstepper
 void moveFocus(int steps)
 {
-  #ifdef CAMERA_MODEL_XIAO
-  if (not isMotorRunning){
-  isMotorRunning=true;
-  digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
-  // run motor to new position with relative movement
-  motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
-  motor.setAcceleration(1000);
-  motor.setSpeed(STEPPER_MOTOR_SPEED);
-  motor.move(steps);
-  while(motor.distanceToGo() != 0){
-    motor.run();
+#ifdef CAMERA_MODEL_XIAO
+  if (not isMotorRunning)
+  {
+    isMotorRunning = true;
+    digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+    // run motor to new position with relative movement
+    motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
+    motor.setAcceleration(1000);
+    motor.setSpeed(STEPPER_MOTOR_SPEED);
+    motor.move(steps);
+    while (motor.distanceToGo() != 0)
+    {
+      motor.run();
+    }
+    //  digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+    isMotorRunning = false;
+    motor.setSpeed(0);
   }
-//  digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
-  isMotorRunning=false;
-  motor.setSpeed(0);
-  }
-  #endif
+#endif
 }
 
-
-
-void setSpeed(int speed){
-  #ifdef CAMERA_MODEL_XIAO
+void setSpeed(int speed)
+{
+#ifdef CAMERA_MODEL_XIAO
   motor.setSpeed(speed);
-  #endif
+#endif
 }

@@ -22,6 +22,8 @@ extern String getWifiSSID(fs::FS &fs);
 extern void setWifiSSID(fs::FS &fs, String value);
 extern String getWifiPW(fs::FS &fs);
 extern void setWifiPW(fs::FS &fs, String value);
+extern void setSerialFrameEnabled(int value);
+extern uint32_t getSerialFrameEnabled();
 
 extern uint32_t getFrameIndex(fs::FS &fs);
 extern void setFrameIndex(fs::FS &fs, int value);

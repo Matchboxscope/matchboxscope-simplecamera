@@ -406,6 +406,7 @@ void setWifiPW(fs::FS &fs, String value)
   writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
+
 static const char frameIndexKey[] = "frameIndex";
 uint32_t getFrameIndex(fs::FS &fs)
 {
@@ -439,6 +440,38 @@ void setFrameIndex(fs::FS &fs, int value)
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[frameIndexKey] = value;
   writeJsonToSSpiffs(mConfig, SPIFFS);
+}
+
+
+static const char serialFrameKey[] = "serialFrame";
+uint32_t getSerialFrameEnabled()
+{
+  // Open preferences with a namespace/key pair
+  Preferences preferences;
+  preferences.begin(groupName, false);
+
+  // Load the boolean value
+  int value = preferences.getInt(serialFrameKey, 0);
+
+  // Close the preferences
+  preferences.end();
+
+  return value;
+}
+
+void setSerialFrameEnabled(int value)
+{
+  // Open preferences with a namespace/key pair
+  // it seems this survives a corruption of the SPIFFS!
+  Preferences preferences;
+  preferences.begin(groupName, false);
+
+  // Save the boolean value
+  preferences.putInt(serialFrameKey, value);
+
+  // Close the preferences
+  preferences.end();
+
 }
 
 
