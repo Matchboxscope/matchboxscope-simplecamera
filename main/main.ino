@@ -23,9 +23,33 @@
 #define STEPPER_MOTOR
 #define STEPPER_MOTOR_STEPS 200
 #define STEPPER_MOTOR_SPEED 10000
+/*
+// For wired version
 #define STEPPER_MOTOR_DIR D2
 #define STEPPER_MOTOR_STEP D1
 #define STEPPER_MOTOR_ENABLE D0
+*/
+
+/*
+// for solder-less version
+en d6
+m1 D5
+m2 d4
+m3 d3
+notreset d2
+notsleep d1
+stp d0
+dir d7
+*/
+
+#define STEPPER_MOTOR_DIR D7
+#define STEPPER_MOTOR_STEP D0
+#define STEPPER_MOTOR_ENABLE D6
+#define STEPPER_MOTOR_M1 D5
+#define STEPPER_MOTOR_M2 D4
+#define STEPPER_MOTOR_M3 D3
+#define STEPPER_MOTOR_NOTRESET D2
+#define STEPPER_MOTOR_NOTSLEEP D1
 
 #ifdef CAMERA_MODEL_XIAO
 #include <AccelStepper.h>
@@ -179,7 +203,6 @@ int pwmChannel = 5;
 #elif defined(CAMERA_MODEL_XIAO)
 int lampChannel = 1; // a free PWM channel (some channels used by camera)
 int pwmChannel = 2;
-int enableChannel = 3;
 #endif
 const int pwmfreq = 50000;   // 50K pwm frequency
 const int pwmresolution = 9; // duty cycle bit range
@@ -842,20 +865,6 @@ void setup()
     ESP.restart();
   }
 
-#if defined(CAMERA_MODEL_XIAO)
-  // setup stepper
-  ledcSetup(enableChannel, pwmfreq, pwmresolution); 
-  ledcAttachPin(STEPPER_MOTOR_ENABLE, enableChannel);
-  ledcWrite(enableChannel, 0);
-
-  motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
-  motor.setAcceleration(1000);
-  motor.setSpeed(STEPPER_MOTOR_SPEED);
-  motor.runToNewPosition(100);
-  motor.runToNewPosition(-100);
-  ledcWrite(enableChannel, 255);
-  
-#endif
 
   // actions done on first boot
   bool isFirstRun = isFirstBoot();
@@ -989,6 +998,31 @@ void setup()
   timelapseInterval = getTimelapseInterval(SPIFFS);
 
 
+#if defined(CAMERA_MODEL_XIAO)
+// not before
+  // setup stepper
+
+  pinMode(STEPPER_MOTOR_DIR, OUTPUT);
+  pinMode(STEPPER_MOTOR_M1, OUTPUT);
+  pinMode(STEPPER_MOTOR_M2, OUTPUT);
+  pinMode(STEPPER_MOTOR_M3, OUTPUT);
+  pinMode(STEPPER_MOTOR_NOTRESET, OUTPUT);
+  pinMode(STEPPER_MOTOR_NOTSLEEP, OUTPUT);
+  digitalWrite(STEPPER_MOTOR_NOTRESET, HIGH);
+  digitalWrite(STEPPER_MOTOR_NOTSLEEP, HIGH);
+  digitalWrite(STEPPER_MOTOR_M1, HIGH);
+  digitalWrite(STEPPER_MOTOR_M2, HIGH);
+  digitalWrite(STEPPER_MOTOR_M3, HIGH);
+  pinMode(STEPPER_MOTOR_ENABLE, OUTPUT); 
+  digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+  motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
+  motor.setAcceleration(10000);
+  motor.setSpeed(STEPPER_MOTOR_SPEED);
+  motor.setCurrentPosition(0);
+  motor.runToNewPosition(10000);
+  motor.runToNewPosition(-10000);
+  digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+#endif
 
   // Initialise and set the lamp
   ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
@@ -1185,13 +1219,22 @@ void loop()
       ArduinoOTA.handle();
 
 #ifdef CAMERA_MODEL_XIAO
-    if (motor.speed() == 0 or motor.isRunning() ==0)
+    if(motor.speed()>0)
     {
-      ledcWrite(enableChannel, 255);
+      digitalWrite(STEPPER_MOTOR_DIR, LOW);
     }
     else
     {
-      ledcWrite(enableChannel, 0);
+      digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+    }
+
+    if (motor.speed() == 0 or motor.isRunning() ==0)
+    {
+      digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+    }
+    else
+    {
+      digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
     }
     motor.runSpeed();
 #endif
@@ -1588,7 +1631,7 @@ void moveFocus(int steps)
   if (not isMotorRunning)
   {
 
-    ledcWrite(enableChannel, 0);
+    digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
     log_i("Moving focus %d steps", steps);
     isMotorRunning = true;
     // run motor to new position with relative movement
@@ -1600,7 +1643,7 @@ void moveFocus(int steps)
     {
       motor.run();
     }
-    ledcWrite(enableChannel, 255);
+    digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
     isMotorRunning = false;
     motor.setSpeed(0);
   }
