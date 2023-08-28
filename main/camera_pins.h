@@ -42,7 +42,7 @@
 //
 #define LED_PIN LED_BUILTIN // Status led
 #define LAMP_PIN 21   // LED FloodLamp.
-#define PWM_PIN 0
+#define PWM_PIN D6
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
 #define XCLK_GPIO_NUM 10

@@ -59,7 +59,12 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <input type="range" id="pwm" min="0" max="512" value="0" class="default-action">
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
               </div>
-
+              <div class="input-group hidden" id="neopixel-group" title="Neopixel value.&#013;&#013;Warning:&#013;This controls an external neopixel on pin 12.">
+                <label for="neopixel">Neopixel</label>
+                <div class="range-min">Off</div>
+                <input type="range" id="neopixel" min="0" max="255" value="0" class="default-action">
+                <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
+              </div>
               <div class="input-group hidden" id="timelapseInterval-group" title="Timelapse Interval value.&#013;&#013;Warning:&#013;Choose a value for capturing images continously. 0 means no interval.">
                 <label for="timelapseInterval">Timelapse Interval (s)</label>
                 <input type="range" id="timelapseInterval" min="0" max="600" value="0" class="default-action" oninput="document.getElementById('valTimelapse').innerHTML = this.value" />
@@ -394,6 +399,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const lampGroup = document.getElementById('lamp-group')
     const autolampGroup = document.getElementById('autolamp-group')
     const pwmGroup = document.getElementById('pwm-group')
+    const neopixelGroup = document.getElementById('neopixel-group')
     const timelapseintervalGroup = document.getElementById('timelapseInterval-group')
     const anglerfishGroup = document.getElementById('anglerfish-group')
     const streamGroup = document.getElementById('stream-group')
@@ -485,6 +491,13 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
             hide(pwmGroup)
           } else {
             show(pwmGroup)
+          }
+          } 
+          else if(el.id === "neopixel"){
+          if (value == -1) {
+            hide(neopixelGroup)
+          } else {
+            show(neopixelGroup)
           }
           } 
           else if(el.id === "timelapseInterval"){

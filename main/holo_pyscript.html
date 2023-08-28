@@ -3,6 +3,11 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
     <title id="title">Holo reconstruction with PyScript</title>
+    <link
+    rel="stylesheet"
+    href="https://pyscript.net/latest/pyscript.css"
+    />
+
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
     <style>
@@ -25,30 +30,28 @@
         animation: spin 2s linear infinite;
       }
     </style>
-    <link rel="stylesheet" href="https://pyscript.net/alpha/pyscript.css" />
-    <script defer src="https://pyscript.net/alpha/pyscript.js"></script>
-    <py-env> 
-        - matplotlib 
-        - imageio 
-        - numpy 
-        - scipy 
-    </py-env>
+    <script defer src="https://pyscript.net/latest/pyscript.js"></script>
   </head>
 
   <body>
+    <py-tutor>
+      <py-config>
+          packages = [
+            "matplotlib"
+          ]
+          plugins = [
+            "https://pyscript.net/latest/plugins/python/py_tutor.py"
+          ]
+      </py-config>
+
     <section class="main">
       <div id="textfield">Raw Image</div>
       <img id="stream" src="" />
       <div id="textfield">Reconstructed Hologram</div>
       <div id="pyplotdiv">
-        <img id="pyplotfigure" /></div>
-    </section>
-    <form onsubmit="return false">
-        <input type="text" id="imageurl" name="imageurl" value="https://cataas.com/cat"><br>
-    </form>
-
-
-    <py-script>
+      <img id="pyplotfigure" /></div>
+    
+    <script type="py">
         from pyodide.http import pyfetch
         from js import document
         import asyncio
@@ -103,7 +106,6 @@
             
 
         await main()
-    </py-script>
   </body>
   <script>
     document.addEventListener("DOMContentLoaded", function (event) {
@@ -129,4 +131,7 @@
       };
     });
   </script>
+</py-tutor>
+</section>
+</body>
 </html>

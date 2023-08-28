@@ -18,6 +18,7 @@
 #include <base64.h>
 #include <Arduino.h>
 #include <WiFi.h>
+#include "camera_pins.h"
 
 #include <esp_http_server.h>
 #include "esp_http_client.h"
@@ -55,6 +56,7 @@ camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename, int pwmVal = -1);
 
 // External variables declared in the main .ino
+extern bool isNeopixel;
 extern char myName[];
 extern char myVer[];
 extern char baseVersion[];
@@ -87,6 +89,9 @@ extern int sensorPID;
 extern int sdInitialized;
 extern bool isTimelapseGeneral;
 extern bool isStack;
+extern int lampChannel;
+const int pwmfreq = 50000;   // 50K pwm frequency
+extern int pwmresolution;
 
 bool IS_STREAM_PAUSE = false;
 
@@ -733,7 +738,18 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     }
     else if (!strcmp(variable, "pwm") && (pwmVal != -1))
     {
+        ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
+        ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
+
+        isNeopixel = false;
         pwmVal = val; // constrain(val, 0, 100);
+        setPWMVal(SPIFFS, pwmVal);
+        setPWM(pwmVal);
+    }
+    else if(!strcmp(variable, "neopixel")){
+        ledcDetachPin(LAMP_PIN);
+        isNeopixel = true;
+        pwmVal = val;
         setPWMVal(SPIFFS, pwmVal);
         setPWM(pwmVal);
     }
@@ -1588,7 +1604,7 @@ void startCameraServer(int hPort, int sPort)
     // Request Handlers; config.max_uri_handlers (above) must be >= the number of handlers
     config.server_port = hPort;
     config.ctrl_port = hPort;
-    Serial.printf("Starting web server on port: '%d'\r\n", config.server_port);
+    //Serial.printf("Starting web server on port: '%d'\r\n", config.server_port);
     if (httpd_start(&camera_httpd, &config) == ESP_OK)
     {
         if (critERR.length() > 0)
@@ -1621,7 +1637,7 @@ void startCameraServer(int hPort, int sPort)
 
     config.server_port = sPort;
     config.ctrl_port = sPort;
-    Serial.printf("Starting stream server on port: '%d'\r\n", config.server_port);
+    //Serial.printf("Starting stream server on port: '%d'\r\n", config.server_port);
     if (httpd_start(&stream_httpd, &config) == ESP_OK)
     {
         if (critERR.length() > 0)

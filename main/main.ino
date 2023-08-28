@@ -17,18 +17,34 @@
 #include "anglerfishcamsettings.h"
 #include <base64.h>
 
-// #define NEOPIXEL
+#define NEOPIXEL
 #define NUMPIXELS 16
 
 #define STEPPER_MOTOR
 #define STEPPER_MOTOR_STEPS 200
 #define STEPPER_MOTOR_SPEED 10000
-/*
+/**/
 // For wired version
 #define STEPPER_MOTOR_DIR D2
 #define STEPPER_MOTOR_STEP D1
 #define STEPPER_MOTOR_ENABLE D0
+#define STEPPER_MOTOR_M1 D10
+#define STEPPER_MOTOR_M2 D10
+#define STEPPER_MOTOR_M3 D10
+#define STEPPER_MOTOR_NOTRESET D10
+#define STEPPER_MOTOR_NOTSLEEP D10
+/*
+For piggy packed version
+#define STEPPER_MOTOR_DIR D7
+#define STEPPER_MOTOR_STEP D0
+#define STEPPER_MOTOR_ENABLE D6
+#define STEPPER_MOTOR_M1 D5
+#define STEPPER_MOTOR_M2 D4
+#define STEPPER_MOTOR_M3 D3
+#define STEPPER_MOTOR_NOTRESET D2
+#define STEPPER_MOTOR_NOTSLEEP D1
 */
+
 
 /*
 // for solder-less version
@@ -42,14 +58,6 @@ stp d0
 dir d7
 */
 
-#define STEPPER_MOTOR_DIR D7
-#define STEPPER_MOTOR_STEP D0
-#define STEPPER_MOTOR_ENABLE D6
-#define STEPPER_MOTOR_M1 D5
-#define STEPPER_MOTOR_M2 D4
-#define STEPPER_MOTOR_M3 D3
-#define STEPPER_MOTOR_NOTRESET D2
-#define STEPPER_MOTOR_NOTSLEEP D1
 
 #ifdef CAMERA_MODEL_XIAO
 #include <AccelStepper.h>
@@ -128,6 +136,8 @@ char mdnsName[] = MDNS_NAME;
 int httpPort = 80;
 int streamPort = 81;
 
+bool isNeopixel = false;
+
 // settings for ssid/pw if updated from serial
 const char *mssid = "Blynk"; // default values
 const char *mpassword = "12345678";
@@ -204,8 +214,8 @@ int pwmChannel = 5;
 int lampChannel = 1; // a free PWM channel (some channels used by camera)
 int pwmChannel = 2;
 #endif
-const int pwmfreq = 50000;   // 50K pwm frequency
-const int pwmresolution = 9; // duty cycle bit range
+int pwmfreq = 50000;   // 50K pwm frequency
+int pwmresolution = 9; // duty cycle bit range
 const int pwmMax = pow(2, pwmresolution) - 1;
 
 bool filesystem = true;
@@ -300,34 +310,38 @@ void setLamp(int newVal)
 // PWM Control
 void setPWM(int newVal)
 {
-#ifdef NEOPIXEL
-  for (int i = 0; i < NUMPIXELS; i++)
+  if (isNeopixel)
   {
-    pixels.setPixelColor(i, pixels.Color(newVal, newVal, newVal));
+    for (int i = 0; i < NUMPIXELS; i++)
+    {
+      pixels.setPixelColor(i, pixels.Color(newVal, newVal, newVal));
+    }
+    pixels.show(); // Send the updated pixel colors to the hardware.
   }
-  pixels.show(); // Send the updated pixel colors to the hardware.
-#else
-  if (newVal != -1)
+  else
   {
-    // Apply a logarithmic function to the scale.
-    int current = newVal;
-    ledcWrite(pwmChannel, current);
-    Serial.print("Current: ");
-    Serial.print(newVal);
-    Serial.print("%, pwm = ");
-    Serial.println(current);
+    if (newVal != -1)
+    {
+      // Apply a logarithmic function to the scale.
+      int current = newVal;
+      ledcWrite(pwmChannel, current);
+      Serial.print("Current: ");
+      Serial.print(newVal);
+      Serial.print("%, pwm = ");
+      Serial.println(current);
+    }
   }
-#endif
 }
 
-String getThreeDigitID() {
+String getThreeDigitID()
+{
   uint8_t mac_address[6];
   String s;
   WiFi.macAddress(mac_address);
   for (byte i = 0; i < 6; ++i)
   {
     char buf[3];
-    sprintf(buf, "%02X", mac_address[i]); 
+    sprintf(buf, "%02X", mac_address[i]);
     s += buf;
   }
   return s;
@@ -342,30 +356,33 @@ void initWifi()
   //  load SSID/PW from SPIFFS
 
   // Scan for Wi-Fi networks
-  int networkCount = WiFi.scanNetworks();
-
-  if (networkCount == 0)
+  if (0)
   {
-    Serial.println("No Wi-Fi networks found");
-  }
-  else
-  {
-    Serial.print("Found ");
-    Serial.print(networkCount);
-    Serial.println(" Wi-Fi networks:");
+    int networkCount = WiFi.scanNetworks();
 
-    for (int i = 0; i < networkCount; ++i)
+    if (networkCount == 0)
     {
-      String ssid = WiFi.SSID(i);
-      int rssi = WiFi.RSSI(i);
-      int encryptionType = WiFi.encryptionType(i);
+      Serial.println("No Wi-Fi networks found");
+    }
+    else
+    {
+      Serial.print("Found ");
+      Serial.print(networkCount);
+      Serial.println(" Wi-Fi networks:");
 
-      Serial.print(i + 1);
-      Serial.print(": ");
-      Serial.print(ssid);
-      Serial.print(" Signal strength: ");
-      Serial.print(rssi);
-      Serial.println(" dBm");
+      for (int i = 0; i < networkCount; ++i)
+      {
+        String ssid = WiFi.SSID(i);
+        int rssi = WiFi.RSSI(i);
+        int encryptionType = WiFi.encryptionType(i);
+
+        Serial.print(i + 1);
+        Serial.print(": ");
+        Serial.print(ssid);
+        Serial.print(" Signal strength: ");
+        Serial.print(rssi);
+        Serial.println(" dBm");
+      }
     }
   }
   String mssid_tmp = getWifiSSID(SPIFFS);
@@ -403,7 +420,7 @@ void initWifi()
     log_d("Initi Wifi works");
 
     int nTrialWifiConnect = 0;
-    int nTrialWifiConnectMax = 2;
+    int nTrialWifiConnectMax = 4;
     int tWaitWifiConnect = 500;
     while (WiFi.status() != WL_CONNECTED)
     {
@@ -743,16 +760,13 @@ bool StartCamera()
   for (int iDummyFrame = 0; iDummyFrame < 2; iDummyFrame++)
   {
     // FIXME: Look at the buffer for the camera => flush vs. return
-    log_d("Capturing dummy frame %i", iDummyFrame);
+    // log_d("Capturing dummy frame %i", iDummyFrame);
     fb = esp_camera_fb_get();
     if (!fb)
       log_e("Camera frame error", false);
     esp_camera_fb_return(fb);
 
-    int mean_intensity = get_mean_intensity(fb);
-
-    Serial.print("Mean intensity: ");
-    Serial.println(mean_intensity);
+    
   }
   // We now have camera with default init
   return initSuccess;
@@ -817,9 +831,8 @@ void setup()
     // Start Serial
     Serial.begin(115200);
     Serial.println("Serial transfer mode disabled");
-    
   }
-#ifdef NEOPIXEL
+
   for (int i = 0; i < NUMPIXELS; i++)
   {
     pixels.setPixelColor(i, pixels.Color(255, 255, 255));
@@ -833,7 +846,6 @@ void setup()
   }
   delay(60);
   pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
-#endif
 
   // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
   if (!psramFound())
@@ -859,7 +871,6 @@ void setup()
     log_e("Camera failed to initialize %i", camInitSuccess);
     ESP.restart();
   }
-
 
   // actions done on first boot
   bool isFirstRun = isFirstBoot();
@@ -992,11 +1003,9 @@ void setup()
   imagesServed = getFrameIndex(SPIFFS);
   timelapseInterval = getTimelapseInterval(SPIFFS);
 
-
 #if defined(CAMERA_MODEL_XIAO)
-// not before
+  // not before
   // setup stepper
-
   pinMode(STEPPER_MOTOR_DIR, OUTPUT);
   pinMode(STEPPER_MOTOR_M1, OUTPUT);
   pinMode(STEPPER_MOTOR_M2, OUTPUT);
@@ -1008,14 +1017,14 @@ void setup()
   digitalWrite(STEPPER_MOTOR_M1, HIGH);
   digitalWrite(STEPPER_MOTOR_M2, HIGH);
   digitalWrite(STEPPER_MOTOR_M3, HIGH);
-  pinMode(STEPPER_MOTOR_ENABLE, OUTPUT); 
+  pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
   digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
   motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
   motor.setAcceleration(10000);
   motor.setSpeed(STEPPER_MOTOR_SPEED);
   motor.setCurrentPosition(0);
-  motor.runToNewPosition(10000);
-  motor.runToNewPosition(-10000);
+  motor.runToNewPosition(10);
+  motor.runToNewPosition(-10);
   digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
 #endif
 
@@ -1028,7 +1037,6 @@ void setup()
   else
     setLamp(lampVal);
 
-#ifndef NEOPIXEL
   // Initialise and set the PWM output
   pinMode(PWM_PIN, OUTPUT);
   log_d("PWM pin: %d", PWM_PIN);
@@ -1037,8 +1045,6 @@ void setup()
   ledcWrite(pwmChannel, 255);                    // set default value to center so that focus or pump are in ground state
   delay(30);
   ledcWrite(pwmChannel, 0); // set default value to center so that focus or pump are in ground state
-#endif
-
 
   // test LEDs
   // visualize we are "on"
@@ -1061,6 +1067,7 @@ void setup()
   // if we only transfer images over serial, we don't need wifi
   if (isSerialTransferMode)
   {
+    Serial.println("Serial transfer mode enabled. To disable, type 'r' ");
     return;
   }
   // before we start the WIFI - check if we are in deep-sleep/anglerfishmode
@@ -1069,7 +1076,7 @@ void setup()
   // WIFI-related settings
   Serial.println("...............");
   // start wifi AP or connect to AP
-  
+
   initWifi();
 
   // propagate URLs to GUI
@@ -1080,7 +1087,7 @@ void setup()
 
   // MDNS Config -- note that if OTA is NOT enabled this needs prior steps!
   MDNS.addService("http", "tcp", 80);
-  Serial.println("Added HTTP service to MDNS server");
+  //Serial.println("Added HTTP service to MDNS server");
 
   // Start the camera server
   startCameraServer(httpPort, streamPort);
@@ -1114,6 +1121,10 @@ void loop()
 #if defined(CAMERA_MODEL_XIAO)
   if (Serial.available() > 0)
   {
+    Serial.println("Serial available");
+    // String command = Serial.readString(); // Read the command until a newline character is received
+    // if (command.length() > 1 && command.charAt(0) == 't')
+
     if (not isSerialTransferMode)
     {
       // change settings to serial transfer mode
@@ -1214,7 +1225,7 @@ void loop()
       ArduinoOTA.handle();
 
 #ifdef CAMERA_MODEL_XIAO
-    if(motor.speed()>0)
+    if (motor.speed() > 0)
     {
       digitalWrite(STEPPER_MOTOR_DIR, LOW);
     }
@@ -1223,7 +1234,7 @@ void loop()
       digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
     }
 
-    if (motor.speed() == 0 or motor.isRunning() ==0)
+    if (motor.speed() == 0 or motor.isRunning() == 0)
     {
       digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
     }
@@ -1302,8 +1313,10 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     }
 
     long time1 = millis();
-    for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
+    if(1)//for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
     {
+      int iFocus = -1;
+      setPWM(255);
       String folderName = "/" + String(imagesServed);
       // FIXME: If we save single files to the SD card, the time to store them growth with every file
       // workaround for now: We store them in a folders
@@ -1634,7 +1647,7 @@ void moveFocus(int steps)
     motor.setAcceleration(1000);
     motor.setSpeed(STEPPER_MOTOR_SPEED);
     motor.move(steps);
-    while (motor.distanceToGo() != 0 )
+    while (motor.distanceToGo() != 0)
     {
       motor.run();
     }
