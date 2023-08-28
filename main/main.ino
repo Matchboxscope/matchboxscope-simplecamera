@@ -940,7 +940,7 @@ void setup()
   // Initialize SD card
   if (!SD.begin(21))
   {
-    Serial.println("Card Mount Failed");
+    Serial.println("SD Card Mount on on XIAO Failed");
     sdInitialized = false;
     setIsTimelapseAnglerfish(false);
     isTimelapseAnglerfish = false;
