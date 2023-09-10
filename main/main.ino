@@ -28,11 +28,11 @@
 #define STEPPER_MOTOR_DIR D2
 #define STEPPER_MOTOR_STEP D1
 #define STEPPER_MOTOR_ENABLE D0
-#define STEPPER_MOTOR_M1 D10
-#define STEPPER_MOTOR_M2 D10
-#define STEPPER_MOTOR_M3 D10
-#define STEPPER_MOTOR_NOTRESET D10
-#define STEPPER_MOTOR_NOTSLEEP D10
+#define STEPPER_MOTOR_M1 -1
+#define STEPPER_MOTOR_M2 -1
+#define STEPPER_MOTOR_M3 -1
+#define STEPPER_MOTOR_NOTRESET -1
+#define STEPPER_MOTOR_NOTSLEEP -1
 /*
 For piggy packed version
 #define STEPPER_MOTOR_DIR D7
@@ -312,10 +312,12 @@ void setPWM(int newVal)
 {
   if (isNeopixel)
   {
+    ledcDetachPin(PWM_PIN);
     for (int i = 0; i < NUMPIXELS; i++)
     {
       pixels.setPixelColor(i, pixels.Color(newVal, newVal, newVal));
     }
+    log_d("Setting Neopixel to %d", newVal);
     pixels.show(); // Send the updated pixel colors to the hardware.
   }
   else
@@ -1007,16 +1009,16 @@ void setup()
   // not before
   // setup stepper
   pinMode(STEPPER_MOTOR_DIR, OUTPUT);
-  pinMode(STEPPER_MOTOR_M1, OUTPUT);
-  pinMode(STEPPER_MOTOR_M2, OUTPUT);
-  pinMode(STEPPER_MOTOR_M3, OUTPUT);
-  pinMode(STEPPER_MOTOR_NOTRESET, OUTPUT);
-  pinMode(STEPPER_MOTOR_NOTSLEEP, OUTPUT);
-  digitalWrite(STEPPER_MOTOR_NOTRESET, HIGH);
-  digitalWrite(STEPPER_MOTOR_NOTSLEEP, HIGH);
-  digitalWrite(STEPPER_MOTOR_M1, HIGH);
-  digitalWrite(STEPPER_MOTOR_M2, HIGH);
-  digitalWrite(STEPPER_MOTOR_M3, HIGH);
+  if(STEPPER_MOTOR_M1>=0) pinMode(STEPPER_MOTOR_M1, OUTPUT);
+  if(STEPPER_MOTOR_M2>=0) pinMode(STEPPER_MOTOR_M2, OUTPUT);
+  if(STEPPER_MOTOR_M3>=0) pinMode(STEPPER_MOTOR_M3, OUTPUT);
+  if(STEPPER_MOTOR_NOTRESET>=0) pinMode(STEPPER_MOTOR_NOTRESET, OUTPUT);
+  if(STEPPER_MOTOR_NOTSLEEP>=0) pinMode(STEPPER_MOTOR_NOTSLEEP, OUTPUT);
+  if(STEPPER_MOTOR_NOTRESET>=0) digitalWrite(STEPPER_MOTOR_NOTRESET, HIGH);
+  if(STEPPER_MOTOR_NOTSLEEP>=0)digitalWrite(STEPPER_MOTOR_NOTSLEEP, HIGH);
+  if(STEPPER_MOTOR_M1>=0)digitalWrite(STEPPER_MOTOR_M1, HIGH);
+  if(STEPPER_MOTOR_M2>=0)digitalWrite(STEPPER_MOTOR_M2, HIGH);
+  if(STEPPER_MOTOR_M3>=0)digitalWrite(STEPPER_MOTOR_M3, HIGH);
   pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
   digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
   motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
@@ -1045,12 +1047,6 @@ void setup()
   ledcWrite(pwmChannel, 255);                    // set default value to center so that focus or pump are in ground state
   delay(30);
   ledcWrite(pwmChannel, 0); // set default value to center so that focus or pump are in ground state
-
-  // test LEDs
-  // visualize we are "on"
-  setLamp(20);
-  delay(50);
-  setLamp(0);
 
   // Now load and apply any saved preferences
   if (filesystem)
@@ -1283,6 +1279,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
 #ifdef CAMERA_MODEL_AI_THINKER
     rtc_gpio_hold_dis(GPIO_NUM_4);
 #endif
+
     // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
     Serial.println("In timelapse anglerfish mode.");
 
@@ -1315,16 +1312,18 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     long time1 = millis();
     if(1)//for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
     {
+      log_d("Setting Neopixel to 255");
       int iFocus = -1;
-      setPWM(255);
+      isNeopixel = true;
+      //setPWM(iFocus);
+      setPWM(255);setPWM(255);// do it twice?
       String folderName = "/" + String(imagesServed);
       // FIXME: If we save single files to the SD card, the time to store them growth with every file
       // workaround for now: We store them in a folders
       // some insights:https://forum.arduino.cc/t/esp32-cam-drastic-slowdown-in-writing-to-the-sd-card-with-increasing-number-of-files/1094767
       SD.mkdir(folderName);
       String filename = folderName + "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed) + "_z" + String(iFocus) + "_";
-
-      setPWM(iFocus);
+      
       log_d("Anglerfish: Acquire Exposure Series");
       // under expose
       loadAnglerfishCamSettings(1, 0);
@@ -1349,6 +1348,10 @@ void initAnglerfish(bool isTimelapseAnglerfish)
       // over expose
       loadAnglerfishCamSettings(500, 0);
       saveImage(filename + "texp_500", iFocus);
+
+      // even more over expose
+      loadAnglerfishCamSettings(1000, 0);
+      saveImage(filename + "texp_1000", iFocus);
     }
     setPWM(0);
     imagesServed++;
