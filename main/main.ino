@@ -227,6 +227,7 @@ const char *ntpServer = "";
 const long gmtOffset_sec = 0;
 const int daylightOffset_sec = 0;
 
+extern void autoFocus();
 extern bool saveImage(String filename, int pwmVal);
 // Critical error string; if set during init (camera hardware failure) it
 // will be returned for all http requests
@@ -1028,6 +1029,7 @@ void setup()
   motor.runToNewPosition(10);
   motor.runToNewPosition(-10);
   digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+  autoFocus();
 #endif
 
   // Initialise and set the lamp

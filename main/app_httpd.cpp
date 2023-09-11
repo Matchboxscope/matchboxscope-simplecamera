@@ -41,7 +41,13 @@
 #include "logo.h"
 #include "storage.h"
 
+// only inlcude if file available 
+#define HAS_GITHUB
+#ifdef HAS_GITHUB
 #include "githubtoken.h"
+#elif
+const char *GITHUB_TOKEN = "";
+#endif
 
 // Functions from the main .ino
 extern void flashLED(int flashtime);
@@ -1655,6 +1661,42 @@ void startCameraServer(int hPort, int sPort)
         httpd_register_uri_handler(stream_httpd, &favicon_32x32_uri);
         httpd_register_uri_handler(stream_httpd, &favicon_ico_uri);
     }
+}
+
+
+void autoFocus() {
+  int maxFocusValue = 0;
+  
+  // Move to start position
+  int minPos = -100;
+  int maxPos = 100;
+    int bestPosition = minPos;  
+  int range = maxPos - minPos;
+  moveFocus(-100);
+
+  // Scan through range and measure focus quality
+  for (int i = 0; i <= range; i++) {
+    moveFocus(1);
+
+    // Capture image and get the focus quality
+    camera_fb_t *fb = esp_camera_fb_get();
+    if (!fb) {
+      Serial.println("Camera capture failed");
+      return;
+    }
+    int focusValue = fb->len;
+    esp_camera_fb_return(fb);
+    Serial.println("Focus value: " + String(focusValue) + " at position " + String(minPos + i) + " of " + String(range) + "");
+    // Check if this focus is better than previous best
+    if (focusValue > maxFocusValue) {
+      maxFocusValue = focusValue;
+      bestPosition = minPos + i;
+    }
+  }
+
+  // Move back to best position
+  moveFocus(bestPosition - range);
+  Serial.println("Autofocus complete. Best position: " + String(bestPosition));
 }
 
 bool saveImage(String filename, int pwmVal)
