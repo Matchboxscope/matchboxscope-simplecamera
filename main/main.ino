@@ -129,7 +129,7 @@ extern bool saveImage(String filename);
 // Critical error string; if set during init (camera hardware failure) it
 // will be returned for all http requests
 String critERR = "";
-int LED_LEDC_CHANNEL = 2 ;
+int LED_LEDC_CHANNEL = 2;
 int led_duty = 255;
 
 void initWifi()
@@ -142,7 +142,7 @@ void initWifi()
   String mssid_tmp = getWifiSSID(SPIFFS);
   String mpassword_tmp = getWifiPW(SPIFFS);
 
-  scanNetworks();
+  // scanNetworks();
 
   // try to connect to available Network
   log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
@@ -436,6 +436,17 @@ void setup()
   if (not camInitSuccess)
   {
     log_e("Camera failed to initialize %i", camInitSuccess);
+    // fast blinking of the LED for 10 seconds
+    // indicate wifi LED
+    ledcSetup(LED_LEDC_CHANNEL, 5000, 8);
+    ledcAttachPin(LED_GPIO_NUM, LED_LEDC_CHANNEL);
+    for (int i = 0; i < 100; i++)
+    {
+      ledcWrite(LED_LEDC_CHANNEL, 255);
+      delay(100);
+      ledcWrite(LED_LEDC_CHANNEL, 0);
+      delay(100);
+    }
     ESP.restart();
   }
 
@@ -549,10 +560,9 @@ void setup()
   // indicate wifi LED
   ledcSetup(LED_LEDC_CHANNEL, 5000, 8);
   ledcAttachPin(LED_GPIO_NUM, LED_LEDC_CHANNEL);
-
 }
 
-int WIFI_WATCHDOG = 15000;
+
 void loop()
 {
   // client mode can fail; so reconnect as appropriate
@@ -717,4 +727,3 @@ void scanNetworks()
     }
   }
 }
-
