@@ -380,6 +380,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
             {
                 _jpg_buf_len = fb->len;
                 _jpg_buf = fb->buf;
+                Serial.println(_jpg_buf_len);
             }
         }
         if (res == ESP_OK)
@@ -1668,15 +1669,16 @@ void autoFocus() {
   int maxFocusValue = 0;
   
   // Move to start position
-  int minPos = -100;
-  int maxPos = 100;
-    int bestPosition = minPos;  
+  int minPos = -300;
+  int maxPos = 300;
+  int focusStep = 25;
+  int bestPosition = minPos;  
   int range = maxPos - minPos;
-  moveFocus(-100);
+  moveFocus(-minPos);
 
   // Scan through range and measure focus quality
-  for (int i = 0; i <= range; i++) {
-    moveFocus(1);
+  for (int i = 0; i <= range/focusStep; i++) {
+    moveFocus(focusStep);
 
     // Capture image and get the focus quality
     camera_fb_t *fb = esp_camera_fb_get();
@@ -1686,11 +1688,11 @@ void autoFocus() {
     }
     int focusValue = fb->len;
     esp_camera_fb_return(fb);
-    Serial.println("Focus value: " + String(focusValue) + " at position " + String(minPos + i) + " of " + String(range) + "");
+    Serial.println("Focus value: " + String(focusValue) + " at position " + String(minPos + i*focusStep) + " of " + String(range) + "");
     // Check if this focus is better than previous best
     if (focusValue > maxFocusValue) {
       maxFocusValue = focusValue;
-      bestPosition = minPos + i;
+      bestPosition = minPos + focusStep;
     }
   }
 
