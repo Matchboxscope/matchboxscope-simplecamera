@@ -41,7 +41,7 @@
 #include "logo.h"
 #include "storage.h"
 
-// only inlcude if file available 
+// only inlcude if file available
 #define HAS_GITHUB
 #ifdef HAS_GITHUB
 #include "githubtoken.h"
@@ -55,13 +55,16 @@ extern void setLamp(int newVal);
 extern void setPWM(int newVal);
 extern void loadSpiffsToPrefs(fs::FS &fs);
 extern bool isTimelapseAnglerfish;
-extern void moveFocus(int val);
+extern void moveFocusRelative(int val, bool handleEnable);
 extern void setSpeed(int val);
+extern int getCurrentMotorPos();
 
 camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename, int pwmVal = -1);
+int autoFocus(int minPos, int maxPos, int focusStep); 
 
 // External variables declared in the main .ino
+extern bool isMotorRunningFixedPosition;
 extern bool isNeopixel;
 extern char myName[];
 extern char myVer[];
@@ -96,12 +99,14 @@ extern int sdInitialized;
 extern bool isTimelapseGeneral;
 extern bool isStack;
 extern int lampChannel;
-const int pwmfreq = 50000;   // 50K pwm frequency
+const int pwmfreq = 50000; // 50K pwm frequency
 extern int pwmresolution;
+
 
 bool IS_STREAM_PAUSE = false;
 
 extern int timelapseInterval;
+extern int autofocusInterval;
 extern bool sendToGithubFlag;
 const char *indexFileName = "/index.txt";
 typedef struct
@@ -380,7 +385,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
             {
                 _jpg_buf_len = fb->len;
                 _jpg_buf = fb->buf;
-                Serial.println(_jpg_buf_len);
+                //Serial.println(_jpg_buf_len);
             }
         }
         if (res == ESP_OK)
@@ -725,22 +730,52 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     // control focus motor
     else if (!strcmp(variable, "mFocusUp"))
     {
+        isMotorRunningFixedPosition=true;
         val = 50;
         Serial.print("Moving focus up");
         Serial.println(val);
-        moveFocus(val);
+        moveFocusRelative(val, true);
     }
     else if (!strcmp(variable, "mFocusDown"))
     {
+        isMotorRunningFixedPosition=true;
         val = -50;
         Serial.print("Moving focus down");
         Serial.println(val);
-        moveFocus(val);
+        moveFocusRelative(val, true);
+    }
+    else if (!strcmp(variable, "mAutoFocus"))
+    {
+        isMotorRunningFixedPosition=true;
+        Serial.print("Autofocus with default settings");
+        autoFocus(-500, 500, 25);
+    }
+    else if (!strcmp(variable, "autofocus"))
+    {   // http://192.168.4.1/control?var=autofocus&val=-100;100;2
+        int posMin = -100;
+        int posMax = 100;
+        int posSteps = 20;
+        // Extract three integers separated by semicolons.
+        int parsedValues = sscanf(value, "%d;%d;%d", &posMin, &posMax, &posSteps);
+        if (parsedValues == 3)
+            { // Ensure all three integers were found and parsed
+                printf("posMin: %d, posMax: %d, posSteps: %d\n", posMin, posMax, posSteps);
+            }
+            else
+            {
+                // Handle error: the format was not as expected.
+                printf("Failed to parse all values.\n");
+            }
+        Serial.print("Moving focus at speed");
+        Serial.println(val);
+        autoFocus(posMin, posMax, posSteps);
     }
     else if (!strcmp(variable, "focusSlider"))
     {
+        // http://192.168.137.198/control?var=focusSlider&val=1000
         Serial.print("Moving focus at speed");
         Serial.println(val);
+        isMotorRunningFixedPosition = false;
         setSpeed(val);
     }
     else if (!strcmp(variable, "pwm") && (pwmVal != -1))
@@ -753,7 +788,8 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         setPWMVal(SPIFFS, pwmVal);
         setPWM(pwmVal);
     }
-    else if(!strcmp(variable, "neopixel")){
+    else if (!strcmp(variable, "neopixel"))
+    {
         ledcDetachPin(LAMP_PIN);
         isNeopixel = true;
         pwmVal = val;
@@ -766,6 +802,12 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.println(val);
         timelapseInterval = val;
         setTimelapseInterval(SPIFFS, timelapseInterval);
+    }
+    else if (!strcmp(variable, "autofocusInterval"))
+    {
+        Serial.print("Changing autofocus interval to: ");
+        Serial.println(val);
+        autofocusInterval = val;
     }
     else if (!strcmp(variable, "save_prefs"))
     {
@@ -890,6 +932,9 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"images_served\":\"%u\",", imagesServed);
         p += sprintf(p, "\"isTimelapseGeneral\":\"%u\",", isTimelapseGeneral);
         p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
+        p += sprintf(p, "\"focusSlider\":\"%d\"", 1);
+        p += sprintf(p, "\"timelapseInterval\":\"%d\"", timelapseInterval);
+        p += sprintf(p, "\"autofocusInterval\":\"%d\"", autofocusInterval);
     }
     *p++ = '}';
     *p++ = 0;
@@ -1611,7 +1656,7 @@ void startCameraServer(int hPort, int sPort)
     // Request Handlers; config.max_uri_handlers (above) must be >= the number of handlers
     config.server_port = hPort;
     config.ctrl_port = hPort;
-    //Serial.printf("Starting web server on port: '%d'\r\n", config.server_port);
+    // Serial.printf("Starting web server on port: '%d'\r\n", config.server_port);
     if (httpd_start(&camera_httpd, &config) == ESP_OK)
     {
         if (critERR.length() > 0)
@@ -1644,7 +1689,7 @@ void startCameraServer(int hPort, int sPort)
 
     config.server_port = sPort;
     config.ctrl_port = sPort;
-    //Serial.printf("Starting stream server on port: '%d'\r\n", config.server_port);
+    // Serial.printf("Starting stream server on port: '%d'\r\n", config.server_port);
     if (httpd_start(&stream_httpd, &config) == ESP_OK)
     {
         if (critERR.length() > 0)
@@ -1664,41 +1709,48 @@ void startCameraServer(int hPort, int sPort)
     }
 }
 
+int autoFocus(int minPos=-300, int maxPos=300, int focusStep=25)
+{
+    #if defined(CAMERA_MODEL_XIAO)
+    int maxFocusValue = 0;
+    isMotorRunningFixedPosition = true;
 
-void autoFocus() {
-  int maxFocusValue = 0;
-  
-  // Move to start position
-  int minPos = -300;
-  int maxPos = 300;
-  int focusStep = 25;
-  int bestPosition = minPos;  
-  int range = maxPos - minPos;
-  moveFocus(-minPos);
+    // Move to start position
+    int currentPosition = getCurrentMotorPos();
+    int bestPosition = minPos;
+    int range = maxPos - minPos;
+    digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+    moveFocusRelative(minPos, false);
 
-  // Scan through range and measure focus quality
-  for (int i = 0; i <= range/focusStep; i++) {
-    moveFocus(focusStep);
+    // Scan through range and measure focus quality
+    for (int i = 0; i <= range / focusStep; i++)
+    {
+        moveFocusRelative(focusStep, false);
 
-    // Capture image and get the focus quality
-    camera_fb_t *fb = esp_camera_fb_get();
-    if (!fb) {
-      Serial.println("Camera capture failed");
-      return;
+        // Capture image and get the focus quality
+        camera_fb_t *fb = esp_camera_fb_get();
+        if (!fb)
+        {
+            Serial.println("Camera capture failed");
+            return -1;
+        }
+        int focusValue = fb->len;
+        esp_camera_fb_return(fb);
+        Serial.println("Focus value: " + String(focusValue) + " at position " + String(minPos + i * focusStep) + " of " + String(range) + "");
+        // Check if this focus is better than previous best
+        if (focusValue > maxFocusValue)
+        {
+            maxFocusValue = focusValue;
+            bestPosition = i* focusStep;
+        }
     }
-    int focusValue = fb->len;
-    esp_camera_fb_return(fb);
-    Serial.println("Focus value: " + String(focusValue) + " at position " + String(minPos + i*focusStep) + " of " + String(range) + "");
-    // Check if this focus is better than previous best
-    if (focusValue > maxFocusValue) {
-      maxFocusValue = focusValue;
-      bestPosition = minPos + focusStep;
-    }
-  }
 
-  // Move back to best position
-  moveFocus(bestPosition - range);
-  Serial.println("Autofocus complete. Best position: " + String(bestPosition));
+    // Move back to best position
+    moveFocusRelative(bestPosition - range, false);
+    digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+    Serial.println("Autofocus complete. Best position: " + String(bestPosition));
+    return bestPosition;
+    #endif
 }
 
 bool saveImage(String filename, int pwmVal)

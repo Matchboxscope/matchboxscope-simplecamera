@@ -72,6 +72,13 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                   <label id="valTimelapse"></label>
                 </div>
               </div>              
+              <div class="input-group hidden" id="autofocusInterval-group" title="Autofocus Interval value.&#013;&#013;Warning:&#013;Choose a value when the microscope should start a new round of autofocus. 0 means no interval.">
+                <label for="autofocusInterval">Autofocus Interval (N)</label>
+                <input type="range" id="autofocusInterval" min="0" max="50" value="0" class="default-action" oninput="document.getElementById('valAutofocusInterval').innerHTML = this.value" />
+                <div>
+                  <label id="valAutofocusInterval"></label>
+                </div>
+              </div>              
               <div class="input-group hidden" id="anglerfish-group" title="Anglerfish Settings Set it to enter the deep-sleep mode with preset time value for periodic image capturing.">
                 <label for="AnglerfishSettings">AnglerfishSettings</label>
                 <div class="range-min">No</div>
@@ -342,6 +349,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <label for="FocusSettings" style="line-height: 2em;">Move Focus</label>
                 <button id="mFocusUp" title="Focus++">Focus++</button>
                 <button id="mFocusDown" title="Focus--">Focus--</button>
+                <button id="mAutoFocus" title="Auto Focus">Auto Focus</button>
               </div>
               <div class="input-group" id="focus-group">
                 <label for="FocusSettings" style="line-height: 2em;">Move Focus</label>
@@ -401,6 +409,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const pwmGroup = document.getElementById('pwm-group')
     const neopixelGroup = document.getElementById('neopixel-group')
     const timelapseintervalGroup = document.getElementById('timelapseInterval-group')
+    const autofocusintervalGroup = document.getElementById('autofocusInterval-group')
     const anglerfishGroup = document.getElementById('anglerfish-group')
     const streamGroup = document.getElementById('stream-group')
     const camName = document.getElementById('cam_name')
@@ -425,6 +434,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const confirmWifi = document.getElementById('mWifiConfirm')
     const focusUp = document.getElementById('mFocusUp')
     const focusDown = document.getElementById('mFocusDown')
+    const autoFocus = document.getElementById('mAutoFocus')
     const focusSlider = document.getElementById('focusSlider');
     const sliderValue = document.getElementById('sliderValue');
 
@@ -505,6 +515,13 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
             hide(timelapseintervalGroup)
           } else {
             show(timelapseintervalGroup)
+          }
+        }
+        else if(el.id === "autofocusInterval"){
+          if (value == -1) {
+            hide(autofocusintervalGroup)
+          } else {
+            show(autofocusintervalGroup)
           }
         }
           else if(el.id === "anglerfishSlider"){
@@ -802,6 +819,12 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       valTimelapseLabel.innerHTML = timelapseInterval.value;
     }
     
+    autofocusInterval.onchange = () => {
+      const valAutofocusInterval = document.getElementById('autofocusInterval');
+      valAutofocusInterfalLabel = document.getElementById('valAutofocusInterval')
+      valAutofocusInterfalLabel.innerHTML = autofocusInterval.value;
+    }
+    
 
     xclk.onchange = () => {
       console.log("xclk:" , xclk);
@@ -835,6 +858,9 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     }
     focusDown.onclick = () => {
       updateConfig(focusDown);
+    }
+    autoFocus.onclick = () => {
+      updateConfig(autoFocus);
     }
     focusSlider.addEventListener('input', () => {
       const value = focusSlider.value;

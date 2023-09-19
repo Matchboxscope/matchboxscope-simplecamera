@@ -16,53 +16,26 @@
 #include "spinlock.h"
 #include "anglerfishcamsettings.h"
 #include <base64.h>
+// Upstream version string
+#include "version.h"
+// Pin Mappings
+#include "camera_pins.h"
+
+#ifdef CAMERA_MODEL_XIAO
+
+#include <AccelStepper.h>
+AccelStepper motor(1, STEPPER_MOTOR_STEP, STEPPER_MOTOR_DIR);
+#endif
+
+
 
 #define NEOPIXEL
 #define NUMPIXELS 16
 
 #define STEPPER_MOTOR
 #define STEPPER_MOTOR_STEPS 200
-#define STEPPER_MOTOR_SPEED 10000
-/**/
-// For wired version
-#define STEPPER_MOTOR_DIR D2
-#define STEPPER_MOTOR_STEP D1
-#define STEPPER_MOTOR_ENABLE D0
-#define STEPPER_MOTOR_M1 -1
-#define STEPPER_MOTOR_M2 -1
-#define STEPPER_MOTOR_M3 -1
-#define STEPPER_MOTOR_NOTRESET -1
-#define STEPPER_MOTOR_NOTSLEEP -1
-/*
-For piggy packed version
-#define STEPPER_MOTOR_DIR D7
-#define STEPPER_MOTOR_STEP D0
-#define STEPPER_MOTOR_ENABLE D6
-#define STEPPER_MOTOR_M1 D5
-#define STEPPER_MOTOR_M2 D4
-#define STEPPER_MOTOR_M3 D3
-#define STEPPER_MOTOR_NOTRESET D2
-#define STEPPER_MOTOR_NOTSLEEP D1
-*/
+#define STEPPER_MOTOR_SPEED 20000
 
-
-/*
-// for solder-less version
-en d6
-m1 D5
-m2 d4
-m3 d3
-notreset d2
-notsleep d1
-stp d0
-dir d7
-*/
-
-
-#ifdef CAMERA_MODEL_XIAO
-#include <AccelStepper.h>
-AccelStepper motor(1, STEPPER_MOTOR_STEP, STEPPER_MOTOR_DIR);
-#endif
 
 // camera configuration
 #define CAM_NAME "Matchboxscope"
@@ -78,12 +51,6 @@ struct station
   const char password[65];
   const bool dhcp;
 }; // do no edit
-
-// Upstream version string
-#include "version.h"
-
-// Pin Mappings
-#include "camera_pins.h"
 
 // Camera config structure
 camera_config_t config;
@@ -105,6 +72,8 @@ int frameHeight = 0; // Height of the image frame
 int sketchSize;
 int sketchSpace;
 String sketchMD5;
+
+bool isMotorRunningFixedPosition = true;
 
 String uniqueID = "0";
 
@@ -197,6 +166,7 @@ int minFrameTime = 0;
 
 // Timelapse
 int timelapseInterval = -1;
+int autofocusInterval = 0;
 static uint64_t t_old = millis();
 bool sendToGithubFlag = false;
 uint32_t frameIndex = 0;
@@ -227,7 +197,7 @@ const char *ntpServer = "";
 const long gmtOffset_sec = 0;
 const int daylightOffset_sec = 0;
 
-extern void autoFocus();
+extern int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25);
 extern bool saveImage(String filename, int pwmVal);
 // Critical error string; if set during init (camera hardware failure) it
 // will be returned for all http requests
@@ -768,8 +738,6 @@ bool StartCamera()
     if (!fb)
       log_e("Camera frame error", false);
     esp_camera_fb_return(fb);
-
-    
   }
   // We now have camera with default init
   return initSuccess;
@@ -1010,26 +978,33 @@ void setup()
   // not before
   // setup stepper
   pinMode(STEPPER_MOTOR_DIR, OUTPUT);
-  if(STEPPER_MOTOR_M1>=0) pinMode(STEPPER_MOTOR_M1, OUTPUT);
-  if(STEPPER_MOTOR_M2>=0) pinMode(STEPPER_MOTOR_M2, OUTPUT);
-  if(STEPPER_MOTOR_M3>=0) pinMode(STEPPER_MOTOR_M3, OUTPUT);
-  if(STEPPER_MOTOR_NOTRESET>=0) pinMode(STEPPER_MOTOR_NOTRESET, OUTPUT);
-  if(STEPPER_MOTOR_NOTSLEEP>=0) pinMode(STEPPER_MOTOR_NOTSLEEP, OUTPUT);
-  if(STEPPER_MOTOR_NOTRESET>=0) digitalWrite(STEPPER_MOTOR_NOTRESET, HIGH);
-  if(STEPPER_MOTOR_NOTSLEEP>=0)digitalWrite(STEPPER_MOTOR_NOTSLEEP, HIGH);
-  if(STEPPER_MOTOR_M1>=0)digitalWrite(STEPPER_MOTOR_M1, HIGH);
-  if(STEPPER_MOTOR_M2>=0)digitalWrite(STEPPER_MOTOR_M2, HIGH);
-  if(STEPPER_MOTOR_M3>=0)digitalWrite(STEPPER_MOTOR_M3, HIGH);
+  if (STEPPER_MOTOR_M1 >= 0)
+    pinMode(STEPPER_MOTOR_M1, OUTPUT);
+  if (STEPPER_MOTOR_M2 >= 0)
+    pinMode(STEPPER_MOTOR_M2, OUTPUT);
+  if (STEPPER_MOTOR_M3 >= 0)
+    pinMode(STEPPER_MOTOR_M3, OUTPUT);
+  if (STEPPER_MOTOR_NOTRESET >= 0)
+    pinMode(STEPPER_MOTOR_NOTRESET, OUTPUT);
+  if (STEPPER_MOTOR_NOTSLEEP >= 0)
+    pinMode(STEPPER_MOTOR_NOTSLEEP, OUTPUT);
+  if (STEPPER_MOTOR_NOTRESET >= 0)
+    digitalWrite(STEPPER_MOTOR_NOTRESET, HIGH);
+  if (STEPPER_MOTOR_NOTSLEEP >= 0)
+    digitalWrite(STEPPER_MOTOR_NOTSLEEP, HIGH);
+  if (STEPPER_MOTOR_M1 >= 0)
+    digitalWrite(STEPPER_MOTOR_M1, HIGH);
+  if (STEPPER_MOTOR_M2 >= 0)
+    digitalWrite(STEPPER_MOTOR_M2, HIGH);
+  if (STEPPER_MOTOR_M3 >= 0)
+    digitalWrite(STEPPER_MOTOR_M3, HIGH);
   pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
   digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
   motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
   motor.setAcceleration(10000);
-  motor.setSpeed(STEPPER_MOTOR_SPEED);
+  motor.setSpeed(0);
   motor.setCurrentPosition(0);
-  motor.runToNewPosition(10);
-  motor.runToNewPosition(-10);
   digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
-  autoFocus();
 #endif
 
   // Initialise and set the lamp
@@ -1085,7 +1060,7 @@ void setup()
 
   // MDNS Config -- note that if OTA is NOT enabled this needs prior steps!
   MDNS.addService("http", "tcp", 80);
-  //Serial.println("Added HTTP service to MDNS server");
+  // Serial.println("Added HTTP service to MDNS server");
 
   // Start the camera server
   startCameraServer(httpPort, streamPort);
@@ -1192,9 +1167,12 @@ void loop()
       t_old = millis();
       frameIndex = getFrameIndex(SPIFFS) + 1;
 
-      // turns on lamp automatically
+      // perform autofocus every n-times
+      if(frameIndex % autofocusInterval == 0){
+        log_d("Performing autofocus");
+        autoFocus(-500, 500, 25);
+      }
       // save to SD card if existent
-
       String filename = "/timelapse_image_scope_" + String(uniqueID) + "_" + String(millis()) + "_" + String(imagesServed);
       if (getAcquireStack(SPIFFS))
       { // FIXME: We could have a switch in the GUI for this settig
@@ -1223,24 +1201,19 @@ void loop()
       ArduinoOTA.handle();
 
 #ifdef CAMERA_MODEL_XIAO
-    if (motor.speed() > 0)
+    if (not isMotorRunningFixedPosition)
     {
-      digitalWrite(STEPPER_MOTOR_DIR, LOW);
+      if (motor.speed() == 0 or motor.isRunning() == 0)
+      {
+        digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+      }
+      else
+      {
+        digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+      }
+      log_d("runSpeed");
+      motor.runSpeed();
     }
-    else
-    {
-      digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
-    }
-
-    if (motor.speed() == 0 or motor.isRunning() == 0)
-    {
-      digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
-    }
-    else
-    {
-      digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
-    }
-    motor.runSpeed();
 #endif
   }
 }
@@ -1288,7 +1261,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     // override LED intensity settings
     lampVal = 255;
     setLamp(lampVal * autoLamp);
-
+    autoFocus(-500, 500, 25);
     // Save image to SD card
     uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;
 
@@ -1312,20 +1285,21 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     }
 
     long time1 = millis();
-    if(1)//for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
+    if (1) // for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
     {
       log_d("Setting Neopixel to 255");
       int iFocus = -1;
       isNeopixel = true;
-      //setPWM(iFocus);
-      setPWM(255);setPWM(255);// do it twice?
+      // setPWM(iFocus);
+      setPWM(255);
+      setPWM(255); // do it twice?
       String folderName = "/" + String(imagesServed);
       // FIXME: If we save single files to the SD card, the time to store them growth with every file
       // workaround for now: We store them in a folders
       // some insights:https://forum.arduino.cc/t/esp32-cam-drastic-slowdown-in-writing-to-the-sd-card-with-increasing-number-of-files/1094767
       SD.mkdir(folderName);
       String filename = folderName + "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed) + "_z" + String(iFocus) + "_";
-      
+
       log_d("Anglerfish: Acquire Exposure Series");
       // under expose
       loadAnglerfishCamSettings(1, 0);
@@ -1439,227 +1413,31 @@ void grabRawFrameBase64()
   esp_camera_fb_return(fb);
 }
 
-/*************+
- *
- * IMPROV
- *
- * ***********
- */
-/*
-  if (Serial.available() > 0)
-  {
-      uint8_t b = Serial.read();
 
-      if (parse_improv_serial_byte(x_position, b, x_buffer, onCommandCallback, onErrorCallback))
-      {
-          x_buffer[x_position++] = b;
-      }
-      else
-      {
-          x_position = 0;
-      }
-            for(int i = 0; i < 16; i++)
-    {
-      Serial.println(x_buffer[i]);
-    }
-  }
-  */
 
-std::vector<std::string> getLocalUrl()
-{
-  return {
-      // URL where user can finish onboarding or use device
-      // Recommended to use website hosted by device
-      String("http://" + WiFi.localIP().toString()).c_str()};
-}
 
-void onErrorCallback(improv::Error err)
-{
-  blink_led(2000, 3);
-}
-
-bool onCommandCallback(improv::ImprovCommand cmd)
-{
-
-  switch (cmd.command)
-  {
-  case improv::Command::GET_CURRENT_STATE:
-  {
-    if ((WiFi.status() == WL_CONNECTED))
-    {
-      set_state(improv::State::STATE_PROVISIONED);
-      std::vector<uint8_t> data = improv::build_rpc_response(improv::GET_CURRENT_STATE, getLocalUrl(), false);
-      send_response(data);
-    }
-    else
-    {
-      set_state(improv::State::STATE_AUTHORIZED);
-    }
-
-    break;
-  }
-
-  case improv::Command::WIFI_SETTINGS:
-  {
-    if (cmd.ssid.length() == 0)
-    {
-      set_error(improv::Error::ERROR_INVALID_RPC);
-      break;
-    }
-
-    set_state(improv::STATE_PROVISIONING);
-
-    if (connectWifi(cmd.ssid, cmd.password))
-    {
-
-      blink_led(100, 3);
-
-      // TODO: Persist credentials here
-      Serial.println("Connected to Wi-Fi!");
-      setWifiPW(SPIFFS, cmd.ssid.c_str());
-      setWifiSSID(SPIFFS, cmd.password.c_str());
-
-      set_state(improv::STATE_PROVISIONED);
-      std::vector<uint8_t> data = improv::build_rpc_response(improv::WIFI_SETTINGS, getLocalUrl(), false);
-      send_response(data);
-      // server.begin();
-    }
-    else
-    {
-      set_state(improv::STATE_STOPPED);
-      set_error(improv::Error::ERROR_UNABLE_TO_CONNECT);
-    }
-
-    break;
-  }
-
-  case improv::Command::GET_DEVICE_INFO:
-  {
-    std::vector<std::string> infos = {
-        // Firmware name
-        "ImprovWiFiDemo",
-        // Firmware version
-        "1.0.0",
-        // Hardware chip/variant
-        "ESP32",
-        // Device name
-        "SimpleWebServer"};
-    std::vector<uint8_t> data = improv::build_rpc_response(improv::GET_DEVICE_INFO, infos, false);
-    send_response(data);
-    break;
-  }
-
-  case improv::Command::GET_WIFI_NETWORKS:
-  {
-    getAvailableWifiNetworks();
-    break;
-  }
-
-  default:
-  {
-    set_error(improv::ERROR_UNKNOWN_RPC);
-    return false;
-  }
-  }
-
-  return true;
-}
-
-void getAvailableWifiNetworks()
-{
-  int networkNum = WiFi.scanNetworks();
-
-  for (int id = 0; id < networkNum; ++id)
-  {
-    std::vector<uint8_t> data = improv::build_rpc_response(
-        improv::GET_WIFI_NETWORKS, {WiFi.SSID(id), String(WiFi.RSSI(id)), (WiFi.encryptionType(id) == WIFI_AUTH_OPEN ? "NO" : "YES")}, false);
-    send_response(data);
-    delay(1);
-  }
-  // final response
-  std::vector<uint8_t> data =
-      improv::build_rpc_response(improv::GET_WIFI_NETWORKS, std::vector<std::string>{}, false);
-  send_response(data);
-}
-
-void set_state(improv::State state)
-{
-
-  std::vector<uint8_t> data = {'I', 'M', 'P', 'R', 'O', 'V'};
-  data.resize(11);
-  data[6] = improv::IMPROV_SERIAL_VERSION;
-  data[7] = improv::TYPE_CURRENT_STATE;
-  data[8] = 1;
-  data[9] = state;
-
-  uint8_t checksum = 0x00;
-  for (uint8_t d : data)
-    checksum += d;
-  data[10] = checksum;
-
-  Serial.write(data.data(), data.size());
-}
-
-void send_response(std::vector<uint8_t> &response)
-{
-  std::vector<uint8_t> data = {'I', 'M', 'P', 'R', 'O', 'V'};
-  data.resize(9);
-  data[6] = improv::IMPROV_SERIAL_VERSION;
-  data[7] = improv::TYPE_RPC_RESPONSE;
-  data[8] = response.size();
-  data.insert(data.end(), response.begin(), response.end());
-
-  uint8_t checksum = 0x00;
-  for (uint8_t d : data)
-    checksum += d;
-  data.push_back(checksum);
-
-  Serial.write(data.data(), data.size());
-}
-
-void set_error(improv::Error error)
-{
-  std::vector<uint8_t> data = {'I', 'M', 'P', 'R', 'O', 'V'};
-  data.resize(11);
-  data[6] = improv::IMPROV_SERIAL_VERSION;
-  data[7] = improv::TYPE_ERROR_STATE;
-  data[8] = 1;
-  data[9] = error;
-
-  uint8_t checksum = 0x00;
-  for (uint8_t d : data)
-    checksum += d;
-  data[10] = checksum;
-
-  Serial.write(data.data(), data.size());
-}
-
-bool isMotorRunning = false;
 
 // move focus using accelstepper
-void moveFocus(int steps)
+void moveFocusRelative(int steps, bool handleEnable = true)
 {
 #ifdef CAMERA_MODEL_XIAO
-
-  if (not isMotorRunning)
-  {
-
-    digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
-    log_i("Moving focus %d steps", steps);
-    isMotorRunning = true;
+    // a very bad idea probably, but otherwise we may have concurancy with the loop function
+    if (handleEnable)
+      digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+    //log_i("Moving focus %d steps, currentposition %d", motor.currentPosition() + steps, motor.currentPosition());
+    
     // run motor to new position with relative movement
-    motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
-    motor.setAcceleration(1000);
     motor.setSpeed(STEPPER_MOTOR_SPEED);
-    motor.move(steps);
-    while (motor.distanceToGo() != 0)
-    {
-      motor.run();
-    }
-    digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
-    isMotorRunning = false;
-    motor.setSpeed(0);
-  }
+    motor.runToNewPosition(motor.currentPosition() + steps);
+    if (handleEnable)
+      digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+#endif
+}
+
+int getCurrentMotorPos()
+{
+#ifdef CAMERA_MODEL_XIAO
+  return motor.currentPosition();
 #endif
 }
 

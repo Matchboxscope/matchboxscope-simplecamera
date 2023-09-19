@@ -61,6 +61,58 @@
 #define HREF_GPIO_NUM 47
 #define PCLK_GPIO_NUM 13
 
+// Motor Pins
+
+/**/
+// For wired version (Anglerfish)
+#define STEPPER_MOTOR_DIR D2
+#define STEPPER_MOTOR_STEP D1
+#define STEPPER_MOTOR_ENABLE D0
+#define STEPPER_MOTOR_M1 -1
+#define STEPPER_MOTOR_M2 -1
+#define STEPPER_MOTOR_M3 -1
+#define STEPPER_MOTOR_NOTRESET -1
+#define STEPPER_MOTOR_NOTSLEEP -1
+/*
+*/
+/*
+For piggy packed version
+#define STEPPER_MOTOR_DIR D7
+#define STEPPER_MOTOR_STEP D0
+#define STEPPER_MOTOR_ENABLE D6
+#define STEPPER_MOTOR_M1 D5
+#define STEPPER_MOTOR_M2 D4
+#define STEPPER_MOTOR_M3 D3
+#define STEPPER_MOTOR_NOTRESET D2
+#define STEPPER_MOTOR_NOTSLEEP D1
+*/
+/*
+// For Board version
+#define STEPPER_MOTOR_DIR D8
+#define STEPPER_MOTOR_STEP D7
+#define STEPPER_MOTOR_ENABLE D9
+#define STEPPER_MOTOR_M1 -1
+#define STEPPER_MOTOR_M2 -1
+#define STEPPER_MOTOR_M3 -1
+#define STEPPER_MOTOR_NOTRESET -1
+#define STEPPER_MOTOR_NOTSLEEP -1
+*/
+
+
+/*
+// for solder-less version
+en d6
+m1 D5
+m2 d4
+m3 d3
+notreset d2
+notsleep d1
+stp d0
+dir d7
+*/
+
+
+
 #define LED_GPIO_NUM 0
 #else
 // Well.
