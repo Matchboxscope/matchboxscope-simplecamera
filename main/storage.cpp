@@ -16,6 +16,7 @@ extern char *mpassword;
 extern uint32_t frameIndex;
 extern bool isStack;
 extern int timelapseInterval;
+extern int autofocusInterval;
 extern bool isTimelapseGeneral;
 
 bool fileOpen = false;  // file-writing switch
@@ -166,6 +167,7 @@ void writePrefsToSSpiffs(fs::FS &fs)
   jsonDoc["frameIndex"] = frameIndex ;
   jsonDoc["isStack"] = isStack ;
   jsonDoc["timelapseInterval"] = timelapseInterval;
+  jsonDoc["autofocusInterval"] = autofocusInterval;
   jsonDoc["isTimelapseGeneral"] = isTimelapseGeneral;
   
   // FIXME: ADD ALL THE values from the json document to variabels!
@@ -508,6 +510,23 @@ void setTimelapseInterval(fs::FS &fs, uint32_t value)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[timelapseIntervalKey] = value;
+  writeJsonToSSpiffs(mConfig, SPIFFS);
+}
+
+static const char autofocusIntervalKey[] = "autofocusInterval";
+uint32_t getAutofocusInterval(fs::FS &fs)
+{
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
+  if (mConfig.containsKey(autofocusIntervalKey))
+    return mConfig[autofocusIntervalKey];
+  else
+    return 0;
+}
+
+void setAutofocusInterval(fs::FS &fs, uint32_t value)
+{
+  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
+  mConfig[autofocusIntervalKey] = value;
   writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 

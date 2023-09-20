@@ -61,7 +61,7 @@ extern int getCurrentMotorPos();
 
 camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename, int pwmVal = -1);
-int autoFocus(int minPos, int maxPos, int focusStep); 
+int autoFocus(int minPos, int maxPos, int focusStep);
 
 // External variables declared in the main .ino
 extern bool isMotorRunningFixedPosition;
@@ -101,7 +101,6 @@ extern bool isStack;
 extern int lampChannel;
 const int pwmfreq = 50000; // 50K pwm frequency
 extern int pwmresolution;
-
 
 bool IS_STREAM_PAUSE = false;
 
@@ -385,7 +384,7 @@ static esp_err_t stream_handler(httpd_req_t *req)
             {
                 _jpg_buf_len = fb->len;
                 _jpg_buf = fb->buf;
-                //Serial.println(_jpg_buf_len);
+                // Serial.println(_jpg_buf_len);
             }
         }
         if (res == ESP_OK)
@@ -730,7 +729,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     // control focus motor
     else if (!strcmp(variable, "mFocusUp"))
     {
-        isMotorRunningFixedPosition=true;
+        isMotorRunningFixedPosition = true;
         val = 50;
         Serial.print("Moving focus up");
         Serial.println(val);
@@ -738,7 +737,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     }
     else if (!strcmp(variable, "mFocusDown"))
     {
-        isMotorRunningFixedPosition=true;
+        isMotorRunningFixedPosition = true;
         val = -50;
         Serial.print("Moving focus down");
         Serial.println(val);
@@ -746,26 +745,26 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     }
     else if (!strcmp(variable, "mAutoFocus"))
     {
-        isMotorRunningFixedPosition=true;
+        isMotorRunningFixedPosition = true;
         Serial.print("Autofocus with default settings");
         autoFocus(-500, 500, 25);
     }
     else if (!strcmp(variable, "autofocus"))
-    {   // http://192.168.4.1/control?var=autofocus&val=-100;100;2
+    { // http://192.168.4.1/control?var=autofocus&val=-100;100;2
         int posMin = -100;
         int posMax = 100;
         int posSteps = 20;
         // Extract three integers separated by semicolons.
         int parsedValues = sscanf(value, "%d;%d;%d", &posMin, &posMax, &posSteps);
         if (parsedValues == 3)
-            { // Ensure all three integers were found and parsed
-                printf("posMin: %d, posMax: %d, posSteps: %d\n", posMin, posMax, posSteps);
-            }
-            else
-            {
-                // Handle error: the format was not as expected.
-                printf("Failed to parse all values.\n");
-            }
+        { // Ensure all three integers were found and parsed
+            printf("posMin: %d, posMax: %d, posSteps: %d\n", posMin, posMax, posSteps);
+        }
+        else
+        {
+            // Handle error: the format was not as expected.
+            printf("Failed to parse all values.\n");
+        }
         Serial.print("Moving focus at speed");
         Serial.println(val);
         autoFocus(posMin, posMax, posSteps);
@@ -808,6 +807,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.print("Changing autofocus interval to: ");
         Serial.println(val);
         autofocusInterval = val;
+        setTimelapseInterval(SPIFFS, autofocusInterval);
     }
     else if (!strcmp(variable, "save_prefs"))
     {
@@ -931,9 +931,9 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"isStack\":\"%u\",", isStack);
         p += sprintf(p, "\"images_served\":\"%u\",", imagesServed);
         p += sprintf(p, "\"isTimelapseGeneral\":\"%u\",", isTimelapseGeneral);
-        p += sprintf(p, "\"anglerfishSlider\":\"%d\"", 1);
-        p += sprintf(p, "\"focusSlider\":\"%d\"", 1);
-        p += sprintf(p, "\"timelapseInterval\":\"%d\"", timelapseInterval);
+        p += sprintf(p, "\"anglerfishSlider\":\"%d\",", 1);
+        p += sprintf(p, "\"focusSlider\":\"%d\",", 1);
+        p += sprintf(p, "\"timelapseInterval\":\"%d\",", timelapseInterval);
         p += sprintf(p, "\"autofocusInterval\":\"%d\"", autofocusInterval);
     }
     *p++ = '}';
@@ -1709,9 +1709,9 @@ void startCameraServer(int hPort, int sPort)
     }
 }
 
-int autoFocus(int minPos=-300, int maxPos=300, int focusStep=25)
+int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
 {
-    #if defined(CAMERA_MODEL_XIAO)
+#if defined(CAMERA_MODEL_XIAO)
     int maxFocusValue = 0;
     isMotorRunningFixedPosition = true;
 
@@ -1727,6 +1727,15 @@ int autoFocus(int minPos=-300, int maxPos=300, int focusStep=25)
     {
         moveFocusRelative(focusStep, false);
 
+        // Pause the stream for a moment
+        IS_STREAM_PAUSE = true;
+
+        // wait until stream pauses
+        while (IS_STREAMING)
+        {
+            delay(10);
+        }
+
         // Capture image and get the focus quality
         camera_fb_t *fb = esp_camera_fb_get();
         if (!fb)
@@ -1734,6 +1743,8 @@ int autoFocus(int minPos=-300, int maxPos=300, int focusStep=25)
             Serial.println("Camera capture failed");
             return -1;
         }
+        IS_STREAM_PAUSE = false;
+
         int focusValue = fb->len;
         esp_camera_fb_return(fb);
         Serial.println("Focus value: " + String(focusValue) + " at position " + String(minPos + i * focusStep) + " of " + String(range) + "");
@@ -1741,7 +1752,7 @@ int autoFocus(int minPos=-300, int maxPos=300, int focusStep=25)
         if (focusValue > maxFocusValue)
         {
             maxFocusValue = focusValue;
-            bestPosition = i* focusStep;
+            bestPosition = i * focusStep;
         }
     }
 
@@ -1750,7 +1761,7 @@ int autoFocus(int minPos=-300, int maxPos=300, int focusStep=25)
     digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
     Serial.println("Autofocus complete. Best position: " + String(bestPosition));
     return bestPosition;
-    #endif
+#endif
 }
 
 bool saveImage(String filename, int pwmVal)

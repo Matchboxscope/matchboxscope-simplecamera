@@ -31,6 +31,8 @@ extern bool getAcquireStack(fs::FS &fs);
 extern void setAcquireStack(fs::FS &fs, bool value);
 uint32_t getTimelapseInterval(fs::FS &fs);
 void setTimelapseInterval(fs::FS &fs, uint32_t value);
+uint32_t getAutofocusInterval(fs::FS &fs);
+void setAutofocusInterval(fs::FS &fs, uint32_t value);
 void setCompiledDate(fs::FS &fs);
 bool getIsTimelapseGeneral(fs::FS &fs);
 void setIsTimelapseGeneral(fs::FS &fs, bool value);

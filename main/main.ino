@@ -196,7 +196,9 @@ char otaPassword[] = "";
 const char *ntpServer = "";
 const long gmtOffset_sec = 0;
 const int daylightOffset_sec = 0;
-
+int autofocus_min = -500;
+int autofocus_max = 500;
+int autofocus_stepsize = 25;
 extern int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25);
 extern bool saveImage(String filename, int pwmVal);
 // Critical error string; if set during init (camera hardware failure) it
@@ -973,6 +975,7 @@ void setup()
   // loading previous settings
   imagesServed = getFrameIndex(SPIFFS);
   timelapseInterval = getTimelapseInterval(SPIFFS);
+  autofocusInterval = getAutofocusInterval(SPIFFS);
 
 #if defined(CAMERA_MODEL_XIAO)
   // not before
@@ -1168,9 +1171,9 @@ void loop()
       frameIndex = getFrameIndex(SPIFFS) + 1;
 
       // perform autofocus every n-times
-      if(frameIndex % autofocusInterval == 0){
+      if(frameIndex % autofocusInterval == 0 and autofocusInterval > 0){
         log_d("Performing autofocus");
-        autoFocus(-500, 500, 25);
+        autoFocus(-autofocus_min, autofocus_max, autofocus_stepsize);
       }
       // save to SD card if existent
       String filename = "/timelapse_image_scope_" + String(uniqueID) + "_" + String(millis()) + "_" + String(imagesServed);
@@ -1186,6 +1189,7 @@ void loop()
       {
         // Acquire the image and save
         imagesServed++;
+        log_d("Store single image");
         int pwmVal = getPWMVal(SPIFFS);
         saveImage(filename, pwmVal);
       }
@@ -1211,7 +1215,6 @@ void loop()
       {
         digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
       }
-      log_d("runSpeed");
       motor.runSpeed();
     }
 #endif
@@ -1261,7 +1264,8 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     // override LED intensity settings
     lampVal = 255;
     setLamp(lampVal * autoLamp);
-    autoFocus(-500, 500, 25);
+    if(frameIndex % autofocusInterval == 0 and autofocusInterval > 0)
+      autoFocus(-autofocus_min, autofocus_max, autofocus_stepsize);
     // Save image to SD card
     uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;
 
