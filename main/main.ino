@@ -1173,7 +1173,7 @@ void loop()
       // perform autofocus every n-times
       if(frameIndex % autofocusInterval == 0 and autofocusInterval > 0){
         log_d("Performing autofocus");
-        autoFocus(-autofocus_min, autofocus_max, autofocus_stepsize);
+        autoFocus(autofocus_min, autofocus_max, autofocus_stepsize);
       }
       // save to SD card if existent
       String filename = "/timelapse_image_scope_" + String(uniqueID) + "_" + String(millis()) + "_" + String(imagesServed);
@@ -1265,7 +1265,7 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     lampVal = 255;
     setLamp(lampVal * autoLamp);
     if(frameIndex % autofocusInterval == 0 and autofocusInterval > 0)
-      autoFocus(-autofocus_min, autofocus_max, autofocus_stepsize);
+      autoFocus(autofocus_min, autofocus_max, autofocus_stepsize);
     // Save image to SD card
     uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;
 

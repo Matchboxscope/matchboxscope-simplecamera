@@ -42,7 +42,7 @@
 //
 #define LED_PIN LED_BUILTIN // Status led
 #define LAMP_PIN 21   // LED FloodLamp.
-#define PWM_PIN D6
+#define PWM_PIN D8
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
 #define XCLK_GPIO_NUM 10
@@ -63,7 +63,7 @@
 
 // Motor Pins
 
-/**/
+/*
 // For wired version (Anglerfish)
 #define STEPPER_MOTOR_DIR D2
 #define STEPPER_MOTOR_STEP D1
@@ -73,10 +73,11 @@
 #define STEPPER_MOTOR_M3 -1
 #define STEPPER_MOTOR_NOTRESET -1
 #define STEPPER_MOTOR_NOTSLEEP -1
-/*
 */
 /*
-For piggy packed version
+*/
+
+//For piggy packed version
 #define STEPPER_MOTOR_DIR D7
 #define STEPPER_MOTOR_STEP D0
 #define STEPPER_MOTOR_ENABLE D6
@@ -85,7 +86,7 @@ For piggy packed version
 #define STEPPER_MOTOR_M3 D3
 #define STEPPER_MOTOR_NOTRESET D2
 #define STEPPER_MOTOR_NOTSLEEP D1
-*/
+
 /*
 // For Board version
 #define STEPPER_MOTOR_DIR D8
