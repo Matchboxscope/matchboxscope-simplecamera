@@ -205,43 +205,7 @@ extern bool saveImage(String filename, int pwmVal);
 // will be returned for all http requests
 String critERR = "";
 
-// Serial input (debugging controls)
-void handleSerial()
-{
-  if (Serial.available())
-  {
-    uint8_t b = Serial.read();
 
-    if (parse_improv_serial_byte(x_position, b, x_buffer, onCommandCallback, onErrorCallback))
-    {
-      x_buffer[x_position++] = b;
-    }
-    else
-    {
-      x_position = 0;
-    }
-
-    while (Serial.available())
-      Serial.read(); // chomp the buffer
-  }
-}
-
-bool connectWifi(std::string ssid, std::string password)
-{
-  uint8_t count = 0;
-  WiFi.begin(ssid.c_str(), password.c_str());
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    blink_led(500, 1);
-    if (count > MAX_ATTEMPTS_WIFI_CONNECTION)
-    {
-      WiFi.disconnect();
-      return false;
-    }
-    count++;
-  }
-  return true;
-}
 
 // Notification LED
 void flashLED(int flashtime)
@@ -745,17 +709,6 @@ bool StartCamera()
   return initSuccess;
 }
 
-void handleSerialTask(void *pvParameters)
-{
-  Serial.println("Creating task handleSerial");
-  // Serial.println("You can enter your wifi password and ssid via a json string e.g.{\"ssid\":\"SSID_NAME\",\"password\":\"SSID-PASSWORD\"}");
-  Serial.println("Navigate to https://matchboxscope.github.io/firmware/FLASH.html and enter the Wifi SSID/PW through the GUI");
-  while (true)
-  {
-    handleSerial();
-    vTaskDelay(100 / portTICK_PERIOD_MS);
-  }
-}
 
 void saveCapturedImageGithubTask(void *pvParameters)
 {
@@ -1097,11 +1050,11 @@ void loop()
 #if defined(CAMERA_MODEL_XIAO)
   if (Serial.available() > 0)
   {
-    Serial.println("Serial available");
     // String command = Serial.readString(); // Read the command until a newline character is received
     // if (command.length() > 1 && command.charAt(0) == 't')
 
-    if (not isSerialTransferMode)
+    String command = Serial.readString();
+    if (not isSerialTransferMode && command.length() > 1 && command.charAt(0) == 's')
     {
       // change settings to serial transfer mode
       isSerialTransferMode = true;
@@ -1115,7 +1068,6 @@ void loop()
     else
     {
       // Check for incoming serial commands
-      String command = Serial.readString(); // Read the command until a newline character is received
       if (command.length() > 1 && command.charAt(0) == 't')
       {
         // exposure time
