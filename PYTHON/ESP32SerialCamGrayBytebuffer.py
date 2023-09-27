@@ -49,6 +49,16 @@ initCam()
 iError = 0
 t0 = time.time()
 waitForNextFrame = True
+
+# change exposure time on the beginning 
+serialdevice.write(('t1 \n').encode())
+# wait for buffer to be clear again - avoid reboots?
+while 1:
+    readline = serialdevice.read()
+    if readline is None or readline == b'\n' or readline == b'':
+        break
+
+
 while True:
     try:
         # Command the camera to capture an image
