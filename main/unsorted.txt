@@ -1,0 +1,463 @@
+
+void WifiSetup()
+{
+    // Feedback that we are now attempting to connect
+    flashLED(300);
+    delay(100);
+    flashLED(300);
+    Serial.println("Starting WiFi");
+
+    // Disable power saving on WiFi to improve responsiveness
+    // (https://github.com/espressif/arduino-esp32/issues/1484)
+    WiFi.setSleep(false);
+
+    Serial.print("Known external SSIDs: ");
+    if (stationCount > firstStation)
+    {
+        for (int i = firstStation; i < stationCount; i++)
+            Serial.printf(" '%s'", stationList[i].ssid);
+    }
+    else
+    {
+        Serial.print("None");
+    }
+    Serial.println();
+    byte mac[6] = {0, 0, 0, 0, 0, 0};
+    WiFi.macAddress(mac);
+    Serial.printf("MAC address: %02X:%02X:%02X:%02X:%02X:%02X\r\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+
+    if (isAccessPoint)
+    {
+        WiFi.disconnect(); // (resets the WiFi scan)
+        WiFi.mode(WIFI_AP);
+        WiFi.softAP("Matchboxscope");
+        Serial.print("[+] AP Created with IP Gateway ");
+        Serial.println(WiFi.softAPIP());
+
+        // Note IP details
+        ip = WiFi.localIP();
+        net = WiFi.subnetMask();
+        gw = WiFi.gatewayIP();
+        Serial.printf("IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
+        Serial.printf("Netmask   : %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
+        Serial.printf("Gateway   : %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
+        calcURLs();
+        return;
+    }
+    int bestStation = -1;
+    long bestRSSI = -1024;
+    char bestSSID[65] = "";
+    uint8_t bestBSSID[6];
+    if (stationCount > firstStation)
+    {
+        // We have a list to scan
+        Serial.printf("Scanning local Wifi Networks\r\n");
+        int stationsFound = WiFi.scanNetworks();
+        Serial.printf("%i networks found\r\n", stationsFound);
+        if (stationsFound > 0)
+        {
+            for (int i = 0; i < stationsFound; ++i)
+            {
+                // Print SSID and RSSI for each network found
+                String thisSSID = WiFi.SSID(i);
+                int thisRSSI = WiFi.RSSI(i);
+                String thisBSSID = WiFi.BSSIDstr(i);
+                Serial.printf("%3i : [%s] %s (%i)", i + 1, thisBSSID.c_str(), thisSSID.c_str(), thisRSSI);
+                // Scan our list of known external stations
+                for (int sta = firstStation; sta < stationCount; sta++)
+                {
+                    if ((strcmp(stationList[sta].ssid, thisSSID.c_str()) == 0) ||
+                        (strcmp(stationList[sta].ssid, thisBSSID.c_str()) == 0))
+                    {
+                        Serial.print("  -  Known!");
+                        // Chose the strongest RSSI seen
+                        if (thisRSSI > bestRSSI)
+                        {
+                            bestStation = sta;
+                            strncpy(bestSSID, thisSSID.c_str(), 64);
+                            // Convert char bssid[] to a byte array
+                            parseBytes(thisBSSID.c_str(), ':', bestBSSID, 6, 16);
+                            bestRSSI = thisRSSI;
+                        }
+                    }
+                }
+                Serial.println();
+            }
+        }
+    }
+    else
+    {
+        // No list to scan, therefore we are an accesspoint
+        accesspoint = true;
+    }
+
+    if (bestStation == -1)
+    {
+        if (!accesspoint)
+        {
+            Serial.println("No known networks found, Trying existing one from perferences.. (set via serial..)");
+            // try existing SSID from prefes
+            // Initiate network connection request (3rd argument, channel = 0 is 'auto')
+            WiFi.begin(getWifiSSID(SPIFFS).c_str(), getWifiPW(SPIFFS).c_str());
+
+            // Wait to connect, or timeout
+            unsigned long start = millis();
+            while ((millis() - start <= WIFI_WATCHDOG) && (WiFi.status() != WL_CONNECTED))
+            {
+                delay(500);
+                Serial.print('.');
+            }
+        }
+        else
+        {
+            Serial.println("AccessPoint mode selected in config");
+        }
+    }
+    else
+    {
+        Serial.printf("Connecting to Wifi Network %d: [%02X:%02X:%02X:%02X:%02X:%02X] %s \r\n",
+                      bestStation, bestBSSID[0], bestBSSID[1], bestBSSID[2], bestBSSID[3],
+                      bestBSSID[4], bestBSSID[5], bestSSID);
+        // Apply static settings if necesscary
+        WiFi.setHostname(mdnsName);
+
+        // Initiate network connection request (3rd argument, channel = 0 is 'auto')
+        WiFi.begin(bestSSID, stationList[bestStation].password, 0, bestBSSID);
+
+        // Wait to connect, or timeout
+        unsigned long start = millis();
+        while ((millis() - start <= WIFI_WATCHDOG) && (WiFi.status() != WL_CONNECTED))
+        {
+            delay(500);
+            Serial.print('.');
+        }
+        // If we have connected, inform user
+        if (WiFi.status() == WL_CONNECTED)
+        {
+            Serial.println("Client connection succeeded");
+            accesspoint = false;
+            // Note IP details
+            ip = WiFi.localIP();
+            net = WiFi.subnetMask();
+            gw = WiFi.gatewayIP();
+            Serial.printf("IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
+            Serial.printf("Netmask   : %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
+            Serial.printf("Gateway   : %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
+            calcURLs();
+            // Flash the LED to show we are connected
+            for (int i = 0; i < 5; i++)
+            {
+                flashLED(50);
+                delay(150);
+            }
+        }
+        else
+        {
+            Serial.println("Client connection Failed");
+            WiFi.disconnect(); // (resets the WiFi scan)
+
+            // try existing SSID from prefes
+            // Initiate network connection request (3rd argument, channel = 0 is 'auto')
+            WiFi.begin(getWifiSSID(SPIFFS).c_str(), getWifiPW(SPIFFS).c_str());
+
+            // Wait to connect, or timeout
+            unsigned long start = millis();
+            while ((millis() - start <= WIFI_WATCHDOG) && (WiFi.status() != WL_CONNECTED))
+            {
+                delay(500);
+                Serial.print('.');
+            }
+        }
+
+        // If we still haven't connected switch to AP mode
+        if (!WiFi.status() == WL_CONNECTED)
+        {
+            Serial.println("Client connection not successful - switching to AP Mode: SSID: 'Matchboxscope'");
+
+            WiFi.disconnect(); // (resets the WiFi scan)
+            WiFi.mode(WIFI_AP);
+            WiFi.softAP("Matchboxscope");
+            Serial.print("[+] AP Created with IP Gateway ");
+            Serial.println(WiFi.softAPIP());
+
+            // Note IP details
+            ip = WiFi.localIP();
+            net = WiFi.subnetMask();
+            gw = WiFi.gatewayIP();
+            Serial.printf("IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
+            Serial.printf("Netmask   : %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
+            Serial.printf("Gateway   : %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
+            calcURLs();
+        }
+    }
+
+    if (accesspoint && (WiFi.status() != WL_CONNECTED))
+    {
+// The accesspoint has been enabled, and we have not connected to any existing networks
+#if defined(AP_CHAN)
+        Serial.println("Setting up Fixed Channel AccessPoint");
+        Serial.print("  SSID     : ");
+        Serial.println(stationList[0].ssid);
+        Serial.print("  Password : ");
+        Serial.println(stationList[0].password);
+        Serial.print("  Channel  : ");
+        Serial.println(AP_CHAN);
+        WiFi.softAP(stationList[0].ssid, stationList[0].password, AP_CHAN);
+#else
+        Serial.println("Setting up AccessPoint");
+        Serial.print("  SSID     : ");
+        Serial.println(stationList[0].ssid);
+        Serial.print("  Password : ");
+        Serial.println(stationList[0].password);
+        WiFi.softAP(stationList[0].ssid, stationList[0].password);
+#endif
+#if defined(AP_ADDRESS)
+        // User has specified the AP details; apply them after a short delay
+        // (https://github.com/espressif/arduino-esp32/issues/985#issuecomment-359157428)
+        delay(100);
+        IPAddress local_IP(AP_ADDRESS);
+        IPAddress gateway(AP_ADDRESS);
+        IPAddress subnet(255, 255, 255, 0);
+        WiFi.softAPConfig(local_IP, gateway, subnet);
+#endif
+        // Note AP details
+        ip = WiFi.softAPIP();
+        net = WiFi.subnetMask();
+        gw = WiFi.gatewayIP();
+        strcpy(apName, stationList[0].ssid);
+        Serial.printf("IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
+        // display IP Address as Bluetooth ID
+        /* FIXME: Too much memory consumption :(
+        esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
+        esp_bt_controller_init(&bt_cfg);
+        esp_bt_controller_enable(ESP_BT_MODE_BLE);
+        esp_ble_gap_set_device_name(WiFi.localIP().toString().c_str());
+        */
+        calcURLs();
+        // Flash the LED to show we are connected
+        for (int i = 0; i < 5; i++)
+        {
+            flashLED(150);
+            delay(50);
+        }
+        // Start the DNS captive portal if requested
+        if (stationList[0].dhcp == true)
+        {
+            Serial.println("Starting Captive Portal");
+            dnsServer.start(DNS_PORT, "*", ip);
+            captivePortal = true;
+        }
+    }
+}
+// image processing on the ESP32 Camera
+
+void cropImage() {
+  uint16_t* src = (uint16_t*)fb->buf; // Assuming 16-bit color depth, adjust accordingly if different
+  uint16_t* dest = new uint16_t[width * height];
+
+  for (int y = y1; y < y1 + height; y++) {
+    for (int x = x1; x < x1 + width; x++) {
+      dest[(y - y1) * width + (x - x1)] = src[y * fb->width + x];
+    }
+  }
+
+  // Additional processing or outputting of the cropped image can be done here
+
+  delete[] dest;
+}
+
+
+
+
+camera_fb_t* fb = NULL;
+
+// Define the convolution kernel
+int kernelSize = 7;
+int kernel[kernelSize][kernelSize] = {
+  {-1, -1, -1, -1, -1, -1, -1},
+  {-1, -1, -1, -1, -1, -1, -1},
+  {-1, -1, -1, -1, -1, -1, -1},
+  {-1, -1, -1, 49, -1, -1, -1},
+  {-1, -1, -1, -1, -1, -1, -1},
+  {-1, -1, -1, -1, -1, -1, -1},
+  {-1, -1, -1, -1, -1, -1, -1}
+};
+
+
+
+void loop() {
+  // Capture an image frame
+  fb = esp_camera_fb_get();
+  if (!fb) {
+    // Handle capture error
+    return;
+  }
+
+  // Perform convolution on the image frame
+  camera_fb_t* result = convolution(fb);
+  if (!result) {
+    // Handle convolution error
+    return;
+  }
+
+  // Further processing or outputting of the convolved image can be done here
+
+  // Clean up the frame buffers
+  esp_camera_fb_return(fb);
+  esp_camera_fb_return(result);
+}
+
+#include <esp_camera.h>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    /*
+     *  Just loop forever, reconnecting Wifi As necesscary in client mode
+     * The stream and URI handler processes initiated by the startCameraServer() call at the
+     * end of setup() will handle the camera and UI processing from now on.
+     */
+
+    /*
+    if (accesspoint)
+    {
+        // Accespoint is permanently up, so just loop, servicing the captive portal as needed
+        // Rather than loop forever, follow the watchdog, in case we later add auto re-scan.
+        unsigned long start = millis();
+        while (millis() - start < WIFI_WATCHDOG)
+        {
+            delay(100);
+            if (otaEnabled)
+                ArduinoOTA.handle();
+            handleSerial();
+            if (captivePortal)
+                dnsServer.processNextRequest();
+        }
+    }
+    else
+    {
+        // client mode can fail; so reconnect as appropriate
+        static bool warned = false;
+        if (WiFi.status() == WL_CONNECTED)
+        {
+            // We are connected, wait a bit and re-check
+            if (warned)
+            {
+                // Tell the user if we have just reconnected
+                Serial.println("WiFi reconnected");
+                warned = false;
+            }
+            // loop here for WIFI_WATCHDOG, turning debugData true/false depending on serial input..
+            unsigned long start = millis();
+            while (millis() - start < WIFI_WATCHDOG)
+            {
+                delay(100);
+                if (otaEnabled)
+                    ArduinoOTA.handle();
+                handleSerial();
+            }
+        }
+        else
+        {
+            // disconnected; attempt to reconnect
+            if (!warned)
+            {
+                // Tell the user if we just disconnected
+                WiFi.disconnect(); // ensures disconnect is complete, wifi scan cleared
+                Serial.println("WiFi disconnected, retrying");
+                warned = true;
+            }
+            WifiSetup();
+        }
+    }
+
+
+
+
+
+        /*
+        String cmd = Serial.readString(); // Serial.read();
+        Serial.print("Serial command");
+        Serial.println(cmd);
+
+        StaticJsonDocument<256> doc;
+        deserializeJson(doc, cmd);
+        if (doc.containsKey("ssid") && doc.containsKey("password"))
+        {
+
+            mssid = doc["ssid"];
+            mpassword = doc["password"];
+
+            Serial.println("Connecting to Wi-Fi...");
+            WiFi.begin(mssid, mpassword);
+
+            int nTrialWifiConnect = 0;
+            while (WiFi.status() != WL_CONNECTED)
+            {
+                nTrialWifiConnect++;
+                delay(200);
+                Serial.println("Connecting to Wi-Fi...");
+                if (nTrialWifiConnect > 10)
+                {
+                    Serial.println("Failed to connect to Wi-Fi => Rebooting");
+                    ESP.restart();
+                    break;
+                }
+            }
+
+            Serial.println("Connected to Wi-Fi!");
+            setWifiPW(SPIFFS,mssid);
+            setWifiSSID(SPIFFS,mpassword);
+        }
+        if (doc.containsKey("wifiap"))
+        {
+
+            mssid = "matchboxscope";
+            mpassword = "";
+
+            // Connect to Wi-Fi network with SSID and password
+            Serial.print("Setting AP (Access Point)…");
+            // Remove the password parameter, if you want the AP (Access Point) to be open
+            WiFi.softAP(mssid);
+
+            IPAddress IP = WiFi.softAPIP();
+            Serial.print("AP IP address: ");
+            Serial.println(IP);
+        }
+        else if (doc.containsKey("github"))
+        {
+            // {"github":"send"}
+            Serial.println("Sending upload page via json");
+            sendToGithubFlag = true;
+            // saveCapturedImageGithub();
+            Serial.println("Github Upload Requested");
+        }
+        else if (doc.containsKey("d"))
+        {
+            // {"d":1}
+            log_d("Serial command: %c", cmd);
+            serialDump();
+        }
+    }
+    */
+
+
+        xTaskCreatePinnedToCore(
+            handleSerialTask,   /* Function to implement the task */
+            "handleSerialTask", /* Name of the task */
+            10000,              /* Stack size in words */
+            NULL,               /* Task input parameter */
+            1,                  /* Priority of the task */
+            NULL,               /* Task handle. */
+            1);                 /* Core where the task should run */
+        Serial.println("Tasks created...");

@@ -84,6 +84,7 @@ const uint8_t index_simple_html[] = R"=====(<!doctype html>
     const settings = document.getElementById('sidebar')
     const waitSettings = document.getElementById('wait-settings')
     const lampGroup = document.getElementById('lamp-group')
+    const lensGroup = document.getElementById('lens-group')
     const rotate = document.getElementById('rotate')
     const view = document.getElementById('stream')
     const viewContainer = document.getElementById('stream-container')
