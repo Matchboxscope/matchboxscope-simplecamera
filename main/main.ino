@@ -16,6 +16,8 @@
 #include "spinlock.h"
 #include "anglerfishcamsettings.h"
 #include <base64.h>
+#include <Adafruit_NeoPixel.h>
+
 // Upstream version string
 #include "version.h"
 // Pin Mappings
@@ -26,16 +28,6 @@
 #include <AccelStepper.h>
 AccelStepper motor(1, STEPPER_MOTOR_STEP, STEPPER_MOTOR_DIR);
 #endif
-
-
-
-#define NEOPIXEL
-#define NUMPIXELS 16
-
-#define STEPPER_MOTOR
-#define STEPPER_MOTOR_STEPS 200
-#define STEPPER_MOTOR_SPEED 20000
-
 
 // camera configuration
 #define CAM_NAME "Matchboxscope"
@@ -105,17 +97,14 @@ char mdnsName[] = MDNS_NAME;
 int httpPort = 80;
 int streamPort = 81;
 
-bool isNeopixel = false;
-
 // settings for ssid/pw if updated from serial
 const char *mssid = "Blynk"; // default values
 const char *mpassword = "12345678";
 
 bool isSerialTransferMode = false;
 
-#ifdef NEOPIXEL
-#include <Adafruit_NeoPixel.h>
-Adafruit_NeoPixel pixels(NUMPIXELS, PWM_PIN, NEO_GRB + NEO_KHZ800);
+#ifdef NEOPIXEL_PIN
+Adafruit_NeoPixel pixels(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 #endif
 
 #define WIFI_WATCHDOG 15000
@@ -159,6 +148,7 @@ unsigned long xclk = 20;
 int myRotation = 0;
 bool isStack = false;
 bool isTimelapseAnglerfish = false;
+bool isAnglerfishExposureBracketing = false;
 bool isTimelapseGeneral = false;
 
 // minimal frame duration in ms, effectively 1/maxFPS
@@ -167,6 +157,7 @@ int minFrameTime = 0;
 // Timelapse
 int timelapseInterval = -1;
 int autofocusInterval = 0;
+bool isAutofocusMotorized = true;
 static uint64_t t_old = millis();
 bool sendToGithubFlag = false;
 uint32_t frameIndex = 0;
@@ -205,8 +196,6 @@ extern bool saveImage(String filename, int pwmVal);
 // will be returned for all http requests
 String critERR = "";
 
-
-
 // Notification LED
 void flashLED(int flashtime)
 {
@@ -244,31 +233,31 @@ void setLamp(int newVal)
   }
 }
 
+// Neopixel Control
+void setNeopixel(int newVal)
+{
+#ifdef NEOPIXEL_PIN
+  for (int i = 0; i < NUMPIXELS; i++)
+  {
+    pixels.setPixelColor(i, pixels.Color(newVal, newVal, newVal));
+  }
+  log_d("Setting Neopixel to %d", newVal);
+  pixels.show(); // Send the updated pixel colors to the hardware.
+#endif
+}
+
 // PWM Control
 void setPWM(int newVal)
 {
-  if (isNeopixel)
+  if (newVal != -1 and PWM_PIN >= 0)
   {
-    ledcDetachPin(PWM_PIN);
-    for (int i = 0; i < NUMPIXELS; i++)
-    {
-      pixels.setPixelColor(i, pixels.Color(newVal, newVal, newVal));
-    }
-    log_d("Setting Neopixel to %d", newVal);
-    pixels.show(); // Send the updated pixel colors to the hardware.
-  }
-  else
-  {
-    if (newVal != -1)
-    {
-      // Apply a logarithmic function to the scale.
-      int current = newVal;
-      ledcWrite(pwmChannel, current);
-      Serial.print("Current: ");
-      Serial.print(newVal);
-      Serial.print("%, pwm = ");
-      Serial.println(current);
-    }
+    // Apply a logarithmic function to the scale.
+    int current = newVal;
+    ledcWrite(pwmChannel, current);
+    Serial.print("Current: ");
+    Serial.print(newVal);
+    Serial.print("%, pwm = ");
+    Serial.println(current);
   }
 }
 
@@ -293,6 +282,29 @@ void initWifi()
    */
   // TODO: Try to connect here if credentials are available
   //  load SSID/PW from SPIFFS
+
+  int n = WiFi.scanNetworks();
+  Serial.println("Scan completed.");
+  if (n == 0)
+  {
+    Serial.println("No network found");
+  }
+  else
+  {
+    Serial.print(n);
+    Serial.println(" networks are discovered");
+    for (int i = 0; i < n; ++i)
+    {
+      Serial.print(i + 1);
+      Serial.print(": ");
+      Serial.print(WiFi.SSID(i));
+      Serial.print(" (");
+      Serial.print(WiFi.RSSI(i));
+      Serial.println(")");
+      delay(10);
+    }
+  }
+  Serial.println("");
 
   // Scan for Wi-Fi networks
   if (0)
@@ -709,7 +721,6 @@ bool StartCamera()
   return initSuccess;
 }
 
-
 void saveCapturedImageGithubTask(void *pvParameters)
 {
   Serial.println("Creating task saveCapturedImageGithubTask");
@@ -759,20 +770,14 @@ void setup()
     Serial.println("Serial transfer mode disabled");
   }
 
-  for (int i = 0; i < NUMPIXELS; i++)
-  {
-    pixels.setPixelColor(i, pixels.Color(255, 255, 255));
-    pixels.show(); // white
-  }
+#ifdef NEOPIXEL_PIN
+  pixels.begin(); // This initializes the NeoPixel library.
+  pixels.setBrightness(255);
+  setNeopixel(0);
+#endif
+  setNeopixel(255);
   delay(60);
-  for (int i = 0; i < NUMPIXELS; i++)
-  {
-    pixels.setPixelColor(i, pixels.Color(0, 0, 0));
-    pixels.show(); // white
-  }
-  delay(60);
-  pixels.begin(); // INITIALIZE NeoPixel strip object (REQUIRED)
-
+  setNeopixel(0);
   // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
   if (!psramFound())
   {
@@ -973,14 +978,16 @@ void setup()
     setLamp(lampVal);
 
   // Initialise and set the PWM output
-  pinMode(PWM_PIN, OUTPUT);
-  log_d("PWM pin: %d", PWM_PIN);
-  ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
-  ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
-  ledcWrite(pwmChannel, 255);                    // set default value to center so that focus or pump are in ground state
-  delay(30);
-  ledcWrite(pwmChannel, 0); // set default value to center so that focus or pump are in ground state
-
+  if (PWM_PIN >= 0)
+  {
+    pinMode(PWM_PIN, OUTPUT);
+    log_d("PWM pin: %d", PWM_PIN);
+    ledcSetup(pwmChannel, pwmfreq, pwmresolution); // configure LED PWM channel
+    ledcAttachPin(PWM_PIN, pwmChannel);            // attach the GPIO pin to the channel
+    setPWM(255);
+    delay(30);
+    setPWM(0);
+  }
   // Now load and apply any saved preferences
   if (filesystem)
   {
@@ -1000,13 +1007,17 @@ void setup()
     return;
   }
   // before we start the WIFI - check if we are in deep-sleep/anglerfishmode
-  initAnglerfish(isTimelapseAnglerfish);
+  initAnglerfish(isTimelapseAnglerfish, isAnglerfishExposureBracketing);
 
   // WIFI-related settings
   Serial.println("...............");
   // start wifi AP or connect to AP
 
   initWifi();
+
+  setNeopixel(255);
+  delay(500);
+  setNeopixel(0);
 
   // propagate URLs to GUI
   calcURLs();
@@ -1123,7 +1134,8 @@ void loop()
       frameIndex = getFrameIndex(SPIFFS) + 1;
 
       // perform autofocus every n-times
-      if(frameIndex % autofocusInterval == 0 and autofocusInterval > 0){
+      if (frameIndex % autofocusInterval == 0 and autofocusInterval > 0)
+      {
         log_d("Performing autofocus");
         autoFocus(autofocus_min, autofocus_max, autofocus_stepsize);
       }
@@ -1200,7 +1212,65 @@ void loadAnglerfishCamSettings(int tExposure, int mGain)
   }
 }
 
-void initAnglerfish(bool isTimelapseAnglerfish)
+bool writePythonProcessingFile()
+{
+  char filename[] = "/loadTimelapse.py";
+
+  if (SD.exists(filename))
+  {
+    Serial.println("File already exists!");
+    return false;
+  }
+
+  File codeFile = SD.open(filename, FILE_WRITE);
+
+  if (codeFile)
+  {
+    codeFile.println("#%%");
+    codeFile.println("import os");
+    codeFile.println("import cv2");
+    codeFile.println("import numpy as np");
+    codeFile.println("import tifffile as tif");
+    codeFile.println("");
+    codeFile.println("base_dir = '/Volumes/SD'  # Modify this as needed");
+    codeFile.println("folder_count = 0");
+    codeFile.println("save_dir = '/Users/bene/Downloads'");
+    codeFile.println("experiment_name = '2023_10_24-Longtime_Autofocus_Test_1minPerImage'");
+    codeFile.println("tiff_filename = os.path.join(save_dir, experiment_name+ '.tif')");
+    codeFile.println("allImages = []");
+    codeFile.println("nFilesNotFound = 0");
+    codeFile.println("while True:");
+    codeFile.println("    current_folder = os.path.join(base_dir, str(folder_count))");
+    codeFile.println("    if not os.path.exists(current_folder):");
+    codeFile.println("        nFilesNotFound+=1");
+    codeFile.println("        if nFilesNotFound > 2:");
+    codeFile.println("            print('Reached end of folders')");
+    codeFile.println("            break");
+    codeFile.println("        continue");
+    codeFile.println("    nFilesNotFound = 0");
+    codeFile.println("    jpg_files = [f for f in os.listdir(current_folder) if f.endswith('.jpg')]");
+    codeFile.println("    try:");
+    codeFile.println("        image = cv2.imread(os.path.join(current_folder, jpg_files[0]))");
+    codeFile.println("        image = np.mean(image, axis=2).astype(np.uint8)");
+    codeFile.println("        allImages.append(image)");
+    codeFile.println("        print('writing file %s to stack' % os.path.join(current_folder, jpg_files[0]))");
+    codeFile.println("    except Exception as e:");
+    codeFile.println("        print(e)");
+    codeFile.println("        print('Could not find image in folder %s' % current_folder)");
+    codeFile.println("    folder_count += 1");
+    codeFile.println("tif.imwrite(tiff_filename, np.array(allImages))");
+    codeFile.close();
+    Serial.println("Code saved to SD card!");
+    return true;
+  }
+  else
+  {
+    Serial.println("Error opening file for writing.");
+    return false;
+  }
+}
+
+void initAnglerfish(bool isTimelapseAnglerfish, bool isAnglerfishExposureBracketing)
 {
   log_d("Anglerfishmode is: %i", isTimelapseAnglerfish);
   if (isTimelapseAnglerfish)
@@ -1209,6 +1279,8 @@ void initAnglerfish(bool isTimelapseAnglerfish)
 #ifdef CAMERA_MODEL_AI_THINKER
     rtc_gpio_hold_dis(GPIO_NUM_4);
 #endif
+    // Create the processing file on the SD card 
+    writePythonProcessingFile();
 
     // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
     Serial.println("In timelapse anglerfish mode.");
@@ -1216,11 +1288,14 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     // override LED intensity settings
     lampVal = 255;
     setLamp(lampVal * autoLamp);
-    if(frameIndex % autofocusInterval == 0 and autofocusInterval > 0)
-      autoFocus(autofocus_min, autofocus_max, autofocus_stepsize);
+
     // Save image to SD card
     uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;
-
+    if (frameIndex > 0 and frameIndex % autofocusInterval == 0 and autofocusInterval > 0)
+    {
+      log_d("Performing autofocus");
+      autoFocus(autofocus_min, autofocus_max, autofocus_stepsize);
+    }
     // FIXME: decide which method to use..
     setFrameIndex(SPIFFS, frameIndex);
     // Get the compile date and time as a string
@@ -1228,7 +1303,6 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     // Remove spaces and colons from the compile date and time string
     compileDate.replace(" ", "_");
     compileDate.replace(":", "");
-
     int stepSize = 2;
     int stepMin = 270;
     int stepMax = 296;
@@ -1243,47 +1317,66 @@ void initAnglerfish(bool isTimelapseAnglerfish)
     long time1 = millis();
     if (1) // for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
     {
-      log_d("Setting Neopixel to 255");
       int iFocus = -1;
-      isNeopixel = true;
       // setPWM(iFocus);
-      setPWM(255);
-      setPWM(255); // do it twice?
       String folderName = "/" + String(imagesServed);
       // FIXME: If we save single files to the SD card, the time to store them growth with every file
       // workaround for now: We store them in a folders
       // some insights:https://forum.arduino.cc/t/esp32-cam-drastic-slowdown-in-writing-to-the-sd-card-with-increasing-number-of-files/1094767
+      log_d("Creating folder %s", folderName);
       SD.mkdir(folderName);
       String filename = folderName + "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed) + "_z" + String(iFocus) + "_";
 
-      log_d("Anglerfish: Acquire Exposure Series");
-      // under expose
-      loadAnglerfishCamSettings(1, 0);
-      saveImage(filename + "texp_1", iFocus);
+      if (isAnglerfishExposureBracketing)
+      {
+        /*
+        Perform an exposure series in case the AEC doesn't work well
+        */
+        log_d("Anglerfish: Acquire Exposure Series");
+        // under expose
+        loadAnglerfishCamSettings(1, 0);
+        saveImage(filename + "texp_1", iFocus);
 
-      // over expose
-      loadAnglerfishCamSettings(5, 0);
-      saveImage(filename + "texp_5", iFocus);
+        // over expose
+        loadAnglerfishCamSettings(5, 0);
+        saveImage(filename + "texp_5", iFocus);
 
-      // over expose
-      loadAnglerfishCamSettings(10, 0);
-      saveImage(filename + "texp_10", iFocus);
+        // over expose
+        loadAnglerfishCamSettings(10, 0);
+        saveImage(filename + "texp_10", iFocus);
 
-      // over expose
-      loadAnglerfishCamSettings(50, 0);
-      saveImage(filename + "texp_50", iFocus);
+        // over expose
+        loadAnglerfishCamSettings(50, 0);
+        saveImage(filename + "texp_50", iFocus);
 
-      // over expose
-      loadAnglerfishCamSettings(100, 0);
-      saveImage(filename + "texp_100", iFocus);
+        // over expose
+        loadAnglerfishCamSettings(100, 0);
+        saveImage(filename + "texp_100", iFocus);
 
-      // over expose
-      loadAnglerfishCamSettings(500, 0);
-      saveImage(filename + "texp_500", iFocus);
+        // over expose
+        loadAnglerfishCamSettings(500, 0);
+        saveImage(filename + "texp_500", iFocus);
 
-      // even more over expose
-      loadAnglerfishCamSettings(1000, 0);
-      saveImage(filename + "texp_1000", iFocus);
+        // even more over expose
+        loadAnglerfishCamSettings(1000, 0);
+        saveImage(filename + "texp_1000", iFocus);
+      }
+      else
+      {
+        /*
+        take image using AEC
+        */
+        // let automatic intensity settle
+        camera_fb_t *fb = NULL;
+        for (int iDummyFrame = 0; iDummyFrame < 10; iDummyFrame++)
+        {
+          fb = esp_camera_fb_get();
+          if (!fb)
+            log_e("Camera frame error", false);
+          esp_camera_fb_return(fb);
+        }
+        saveImage(filename + "_AEC", -1);
+      }
     }
     setPWM(0);
     imagesServed++;
@@ -1369,24 +1462,20 @@ void grabRawFrameBase64()
   esp_camera_fb_return(fb);
 }
 
-
-
-
-
 // move focus using accelstepper
 void moveFocusRelative(int steps, bool handleEnable = true)
 {
 #ifdef CAMERA_MODEL_XIAO
-    // a very bad idea probably, but otherwise we may have concurancy with the loop function
-    if (handleEnable)
-      digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
-    //log_i("Moving focus %d steps, currentposition %d", motor.currentPosition() + steps, motor.currentPosition());
-    
-    // run motor to new position with relative movement
-    motor.setSpeed(STEPPER_MOTOR_SPEED);
-    motor.runToNewPosition(motor.currentPosition() + steps);
-    if (handleEnable)
-      digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+  // a very bad idea probably, but otherwise we may have concurancy with the loop function
+  if (handleEnable)
+    digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+  // log_i("Moving focus %d steps, currentposition %d", motor.currentPosition() + steps, motor.currentPosition());
+
+  // run motor to new position with relative movement
+  motor.setSpeed(STEPPER_MOTOR_SPEED);
+  motor.runToNewPosition(motor.currentPosition() + steps);
+  if (handleEnable)
+    digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
 #endif
 }
 

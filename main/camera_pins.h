@@ -15,6 +15,8 @@
 // AI Thinker
 // https://github.com/SeeedDocument/forum_doc/raw/master/reg/ESP32_CAM_V1.6.pdf
 //
+#define NEOPIXEL_PIN 4
+#define NUMPIXELS 16
 #define PWM_PIN 12
 #define LED_PIN 33 // Status led
 #define LAMP_PIN 4   // LED FloodLamp.
@@ -42,7 +44,7 @@
 //
 #define LED_PIN LED_BUILTIN // Status led
 #define LAMP_PIN 21   // LED FloodLamp.
-#define PWM_PIN D8
+#define PWM_PIN  -1 //D8
 #define PWDN_GPIO_NUM -1
 #define RESET_GPIO_NUM -1
 #define XCLK_GPIO_NUM 10
@@ -63,7 +65,7 @@
 
 // Motor Pins
 
-/*
+
 // For wired version (Anglerfish)
 #define STEPPER_MOTOR_DIR D2
 #define STEPPER_MOTOR_STEP D1
@@ -73,22 +75,32 @@
 #define STEPPER_MOTOR_M3 -1
 #define STEPPER_MOTOR_NOTRESET -1
 #define STEPPER_MOTOR_NOTSLEEP -1
-*/
-/*
-*/
+#define NUMPIXELS 16
+#define NEOPIXEL_PIN D6
+//#define NEOPIXEL_PIN -1
 
 //For piggy packed version
+#define STEPPER_MOTOR
+#define STEPPER_MOTOR_STEPS 200
+#define STEPPER_MOTOR_SPEED 20000
+
+/*
+#define NUMPIXELS 16
+#define NEOPIXEL_PIN D9
 #define STEPPER_MOTOR_DIR D7
 #define STEPPER_MOTOR_STEP D0
 #define STEPPER_MOTOR_ENABLE D6
-#define STEPPER_MOTOR_M1 D5
-#define STEPPER_MOTOR_M2 D4
-#define STEPPER_MOTOR_M3 D3
+#define STEPPER_MOTOR_M1 -1
+#define STEPPER_MOTOR_M2 -1
+#define STEPPER_MOTOR_M3 -1
 #define STEPPER_MOTOR_NOTRESET D2
 #define STEPPER_MOTOR_NOTSLEEP D1
-
-/*
+#define STEPPER_MOTOR
+#define STEPPER_MOTOR_STEPS 200
+#define STEPPER_MOTOR_SPEED 20000
+*/
 // For Board version
+/*
 #define STEPPER_MOTOR_DIR D8
 #define STEPPER_MOTOR_STEP D7
 #define STEPPER_MOTOR_ENABLE D9
@@ -97,8 +109,9 @@
 #define STEPPER_MOTOR_M3 -1
 #define STEPPER_MOTOR_NOTRESET -1
 #define STEPPER_MOTOR_NOTSLEEP -1
+#define NUMPIXELS 16
+#define NEOPIXEL_PIN -0
 */
-
 
 /*
 // for solder-less version

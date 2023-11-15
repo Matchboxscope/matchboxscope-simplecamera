@@ -517,10 +517,12 @@ static const char autofocusIntervalKey[] = "autofocusInterval";
 uint32_t getAutofocusInterval(fs::FS &fs)
 {
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  if (mConfig.containsKey(autofocusIntervalKey))
+  if (mConfig.containsKey(autofocusIntervalKey)){
+    log_d("getAutofocusInterval: %i", mConfig[autofocusIntervalKey]);
     return mConfig[autofocusIntervalKey];
-  else
-    return 0;
+  }
+  log_d("getAutofocusInterval: %i", 0);
+  return 0;
 }
 
 void setAutofocusInterval(fs::FS &fs, uint32_t value)
@@ -528,6 +530,7 @@ void setAutofocusInterval(fs::FS &fs, uint32_t value)
   DynamicJsonDocument mConfig = readPrefs(SPIFFS);
   mConfig[autofocusIntervalKey] = value;
   writeJsonToSSpiffs(mConfig, SPIFFS);
+  log_d("setAutofocusInterval: %i", value);
 }
 
 static const char pwmvalKey[] = "pwmval";

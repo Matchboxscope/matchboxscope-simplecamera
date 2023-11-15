@@ -58,6 +58,7 @@ extern bool isTimelapseAnglerfish;
 extern void moveFocusRelative(int val, bool handleEnable);
 extern void setSpeed(int val);
 extern int getCurrentMotorPos();
+extern void setNeopixel(int);
 
 camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename, int pwmVal = -1);
@@ -65,13 +66,13 @@ int autoFocus(int minPos, int maxPos, int focusStep);
 
 // External variables declared in the main .ino
 extern bool isMotorRunningFixedPosition;
-extern bool isNeopixel;
 extern char myName[];
 extern char myVer[];
 extern char baseVersion[];
 extern IPAddress ip;
 extern IPAddress net;
 extern IPAddress gw;
+extern bool isAutofocusMotorized;
 extern bool is_accesspoint;
 extern int httpPort;
 extern int streamPort;
@@ -751,6 +752,8 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     }
     else if (!strcmp(variable, "autofocus"))
     { // http://192.168.4.1/control?var=autofocus&val=-100;100;2
+        // http://192.168.137.108//control?var=autofocus&val=419;512;2
+
         int posMin = -100;
         int posMax = 100;
         int posSteps = 20;
@@ -782,18 +785,13 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
         ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
 
-        isNeopixel = false;
         pwmVal = val; // constrain(val, 0, 100);
         setPWMVal(SPIFFS, pwmVal);
         setPWM(pwmVal);
     }
     else if (!strcmp(variable, "neopixel"))
     {
-        ledcDetachPin(LAMP_PIN);
-        isNeopixel = true;
-        pwmVal = val;
-        setPWMVal(SPIFFS, pwmVal);
-        setPWM(pwmVal);
+        setNeopixel(val);
     }
     else if (!strcmp(variable, "timelapseInterval"))
     {
@@ -807,7 +805,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         Serial.print("Changing autofocus interval to: ");
         Serial.println(val);
         autofocusInterval = val;
-        setTimelapseInterval(SPIFFS, autofocusInterval);
+        setAutofocusInterval(SPIFFS, autofocusInterval);
     }
     else if (!strcmp(variable, "save_prefs"))
     {
@@ -1712,55 +1710,134 @@ void startCameraServer(int hPort, int sPort)
 int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
 {
 #if defined(CAMERA_MODEL_XIAO)
-    int maxFocusValue = 0;
-    isMotorRunningFixedPosition = true;
-
-    // Move to start position
-    int currentPosition = getCurrentMotorPos();
-    int bestPosition = minPos;
-    int range = maxPos - minPos;
-    digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
-    moveFocusRelative(minPos, false);
-
-    // Scan through range and measure focus quality
-    for (int i = 0; i <= range / focusStep; i++)
+    if (isAutofocusMotorized)
     {
-        moveFocusRelative(focusStep, false);
 
-        // Pause the stream for a moment
-        IS_STREAM_PAUSE = true;
+        int maxFocusValue = 0;
+        isMotorRunningFixedPosition = true;
 
-        // wait until stream pauses
-        while (IS_STREAMING)
+        // Move to start position
+        int currentPosition = getCurrentMotorPos();
+        int bestPosition = minPos;
+        int range = maxPos - minPos;
+        digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+        moveFocusRelative(minPos, false);
+
+        // Scan through range and measure focus quality
+        int lastFBSize = 0;
+        int focusValue = 0;
+        for (int iFocus = 0; iFocus <= range / focusStep; iFocus++)
         {
-            delay(10);
+            if (iFocus > 0)
+                moveFocusRelative(focusStep, false);
+            // Pause the stream for a moment
+            IS_STREAM_PAUSE = true;
+
+            // wait until stream pauses
+            while (IS_STREAMING)
+            {
+                delay(10);
+            }
+
+            for (int iFrame = 0; iFrame < 100; iFrame++)
+            {
+                // Capture image and get the focus quality
+                camera_fb_t *fb = esp_camera_fb_get();
+                if (!fb)
+                {
+                    Serial.println("Camera capture failed");
+                    return -1;
+                }
+
+                focusValue = fb->len;
+                esp_camera_fb_return(fb);
+                if (focusValue != lastFBSize)
+                { // sometmies the same image is returned twice..not sure why..
+                    break;
+                }
+                else{
+                    focusValue = -1;
+                }
+            }
+            IS_STREAM_PAUSE = false;
+            Serial.println("Focus value; " + String(focusValue) + "; at position; " + String(minPos + iFocus * focusStep) + "; of " + String(range) + "");
+            lastFBSize = focusValue;
+            // Check if this focus is better than previous best
+            if (focusValue > maxFocusValue)
+            {
+                maxFocusValue = focusValue;
+                bestPosition = iFocus * focusStep;
+            }
+
+            
         }
 
-        // Capture image and get the focus quality
-        camera_fb_t *fb = esp_camera_fb_get();
-        if (!fb)
-        {
-            Serial.println("Camera capture failed");
-            return -1;
-        }
-        IS_STREAM_PAUSE = false;
-
-        int focusValue = fb->len;
-        esp_camera_fb_return(fb);
-        Serial.println("Focus value: " + String(focusValue) + " at position " + String(minPos + i * focusStep) + " of " + String(range) + "");
-        // Check if this focus is better than previous best
-        if (focusValue > maxFocusValue)
-        {
-            maxFocusValue = focusValue;
-            bestPosition = i * focusStep;
-        }
+        // Move back to best position
+        moveFocusRelative(-range, false);
+        delay(1000);
+        moveFocusRelative(bestPosition, false);
+        digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+        Serial.println("Autofocus complete. Best position: " + String(bestPosition));
+        return bestPosition;
     }
+    else
+    {
 
-    // Move back to best position
-    moveFocusRelative(bestPosition - range, false);
-    digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
-    Serial.println("Autofocus complete. Best position: " + String(bestPosition));
-    return bestPosition;
+        int maxFocusValue = 0;
+        int bestPosition = 0;
+        int range = maxPos - minPos;
+        int lastFBSize = 0;
+        int focusValue = 0;
+
+        // Scan through range and measure focus quality
+        for (int i = 0; i <= range / focusStep; i++)
+        {
+            log_i("Autofocus: %d", i);
+            setPWM(minPos + i * focusStep);
+            delay(20);
+            // Pause the stream for a moment
+            IS_STREAM_PAUSE = true;
+
+            // wait until stream pauses
+            while (IS_STREAMING)
+            {
+                delay(10);
+            }
+
+            // Capture image and get the focus quality
+            for (int j = 0; j < 5; j++)
+            {
+                camera_fb_t *fb = esp_camera_fb_get();
+                if (!fb)
+                {
+                    Serial.println("Camera capture failed");
+                    return -1;
+                }
+
+                focusValue = fb->len;
+                esp_camera_fb_return(fb);
+                if (focusValue != lastFBSize)
+                {
+                    break;
+                }
+            }
+            IS_STREAM_PAUSE = false;
+            lastFBSize = focusValue;
+            Serial.println("Focus value: " + String(focusValue) + " at position " + String(minPos + i * focusStep) + " of " + String(range) + "");
+            // Check if this focus is better than previous best
+            if (focusValue > maxFocusValue)
+            {
+                maxFocusValue = focusValue;
+                bestPosition = i;
+            }
+        }
+
+        // Move back to best position
+        setPWM(minPos + bestPosition * focusStep);
+        digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+        Serial.println("Autofocus complete. Best position: " + String(bestPosition));
+        return bestPosition;
+    }
 #endif
 }
 
