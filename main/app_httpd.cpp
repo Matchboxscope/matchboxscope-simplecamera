@@ -59,6 +59,7 @@ extern void moveFocusRelative(int val, bool handleEnable);
 extern void setSpeed(int val);
 extern int getCurrentMotorPos();
 extern void setNeopixel(int);
+extern void setMotorActive(bool isActive);
 
 camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename, int pwmVal = -1);
@@ -1720,7 +1721,7 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
         int currentPosition = getCurrentMotorPos();
         int bestPosition = minPos;
         int range = maxPos - minPos;
-        digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+        setMotorActive(true);
         moveFocusRelative(minPos, false);
 
         // Scan through range and measure focus quality
@@ -1776,7 +1777,7 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
         moveFocusRelative(-range, false);
         delay(1000);
         moveFocusRelative(bestPosition, false);
-        digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+        setMotorActive(false);
         Serial.println("Autofocus complete. Best position: " + String(bestPosition));
         return bestPosition;
     }
@@ -1834,7 +1835,7 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
 
         // Move back to best position
         setPWM(minPos + bestPosition * focusStep);
-        digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+        setMotorActive(false);
         Serial.println("Autofocus complete. Best position: " + String(bestPosition));
         return bestPosition;
     }
