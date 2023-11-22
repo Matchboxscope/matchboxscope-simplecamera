@@ -23,10 +23,15 @@
 // Pin Mappings
 #include "camera_pins.h"
 
-#ifdef CAMERA_MODEL_XIAO
+//#define ACCELSTEPPER
 
+#ifdef CAMERA_MODEL_XIAO
 #include <AccelStepper.h>
+#ifdef ACCELSTEPPER
 AccelStepper motor(1, STEPPER_MOTOR_STEP, STEPPER_MOTOR_DIR);
+#else
+AccelStepper motor(8, motorPin1, motorPin3, motorPin2, motorPin4);
+#endif
 #endif
 
 // camera configuration
@@ -936,8 +941,9 @@ void setup()
   autofocusInterval = getAutofocusInterval(SPIFFS);
 
 #if defined(CAMERA_MODEL_XIAO)
-  // not before
-  // setup stepper
+// not before
+// setup stepper
+#ifdef ACCELSTEPPER
   pinMode(STEPPER_MOTOR_DIR, OUTPUT);
   if (STEPPER_MOTOR_M1 >= 0)
     pinMode(STEPPER_MOTOR_M1, OUTPUT);
@@ -960,12 +966,31 @@ void setup()
   if (STEPPER_MOTOR_M3 >= 0)
     digitalWrite(STEPPER_MOTOR_M3, HIGH);
   pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
-  digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+  setMotorActive(true);
   motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
   motor.setAcceleration(10000);
+  setMotorActive(false);
+#else
+  // 28byj motor
+  pinMode(motorPin1, OUTPUT);
+  pinMode(motorPin2, OUTPUT);
+  pinMode(motorPin3, OUTPUT);
+  pinMode(motorPin4, OUTPUT);
+  digitalWrite(motorPin1, LOW);
+  digitalWrite(motorPin2, LOW);
+  digitalWrite(motorPin3, LOW);
+  digitalWrite(motorPin4, LOW);
+  delay(1000);
+  motor.setMaxSpeed(500);
+  motor.setAcceleration(10000);
+  //motor.runToNewPosition(10000);
+  //motor.runToNewPosition(-10000);
+  setMotorActive(false);
+  
+#endif
   motor.setSpeed(0);
   motor.setCurrentPosition(0);
-  digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+
 #endif
 
   // Initialise and set the lamp
@@ -1169,15 +1194,21 @@ void loop()
       ArduinoOTA.handle();
 
 #ifdef CAMERA_MODEL_XIAO
+
     if (not isMotorRunningFixedPosition)
     {
       if (motor.speed() == 0 or motor.isRunning() == 0)
       {
-        digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
+#ifdef ACCELSTEPPER
+        setMotorActive(false);
+#endif
       }
       else
       {
-        digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+#ifdef ACCELSTEPPER
+        setMotorActive(true);
+
+#endif
       }
       motor.runSpeed();
     }
@@ -1279,7 +1310,7 @@ void initAnglerfish(bool isTimelapseAnglerfish, bool isAnglerfishExposureBracket
 #ifdef CAMERA_MODEL_AI_THINKER
     rtc_gpio_hold_dis(GPIO_NUM_4);
 #endif
-    // Create the processing file on the SD card 
+    // Create the processing file on the SD card
     writePythonProcessingFile();
 
     // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
@@ -1466,17 +1497,17 @@ void grabRawFrameBase64()
 void moveFocusRelative(int steps, bool handleEnable = true)
 {
 #ifdef CAMERA_MODEL_XIAO
-  // a very bad idea probably, but otherwise we may have concurancy with the loop function
+// a very bad idea probably, but otherwise we may have concurancy with the loop function
   if (handleEnable)
-    digitalWrite(STEPPER_MOTOR_ENABLE, LOW);
+    setMotorActive(true);
   // log_i("Moving focus %d steps, currentposition %d", motor.currentPosition() + steps, motor.currentPosition());
 
   // run motor to new position with relative movement
   motor.setSpeed(STEPPER_MOTOR_SPEED);
   motor.runToNewPosition(motor.currentPosition() + steps);
   if (handleEnable)
-    digitalWrite(STEPPER_MOTOR_ENABLE, HIGH);
-#endif
+    setMotorActive(false);
+  #endif
 }
 
 int getCurrentMotorPos()
@@ -1490,5 +1521,20 @@ void setSpeed(int speed)
 {
 #ifdef CAMERA_MODEL_XIAO
   motor.setSpeed(speed);
+#endif
+}
+
+void setMotorActive(bool isActive)
+{
+#ifdef CAMERA_MODEL_XIAO
+#ifdef ACCELSTEPPER
+  // low means active
+  digitalWrite(STEPPER_MOTOR_ENABLE, !isActive);
+#else
+  digitalWrite(motorPin1, isActive);
+  digitalWrite(motorPin2, isActive);
+  digitalWrite(motorPin3, isActive);
+  digitalWrite(motorPin4, isActive);
+#endif
 #endif
 }

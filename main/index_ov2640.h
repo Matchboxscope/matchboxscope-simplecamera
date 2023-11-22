@@ -353,8 +353,14 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
               </div>
               <div class="input-group" id="focus-group">
                 <label for="FocusSettings" style="line-height: 2em;">Move Focus</label>
-                <input type="range" id="focusSlider" min="-200" max="200" step="50" value="0">
+                <input type="range" id="focusSlider" min="-500" max="500" step="50" value="0">
                 <span id="sliderValue">0</span>
+              </div>
+              <div class="input-group" id="pump-group">
+                  <label for="pumpSpeed" style="line-height: 2em;">Pump Speed</label>
+                  <input type="number" id="pumpSpeed" name="pumpSpeed" min="-1000" max="1000" step="1">
+                  <button id="startPump" title="Start">Start</button>
+                  <button id="stopPump" title="Stop">Stop</button>
               </div>
               <div class="input-group" id="cam_name-group">
                 <label for="cam_name">
@@ -437,6 +443,10 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const autoFocus = document.getElementById('mAutoFocus')
     const focusSlider = document.getElementById('focusSlider');
     const sliderValue = document.getElementById('sliderValue');
+
+    const pumpSpeed = document.getElementById('pumpSpeed');
+    const startPump = document.getElementById('startPump');
+    const stopPump = document.getElementById('stopPump');
 
     const swapButton = document.getElementById('swap-viewer')
     const writePrefsToSSpiffsButton = document.getElementById('save_prefs')
@@ -859,6 +869,21 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     focusDown.onclick = () => {
       updateConfig(focusDown);
     }
+    startPump.onclick = () => {
+      if (pumpSpeed.value == 0) {
+        alert("Please set the pump speed first!");
+        return;
+     }
+     else{
+      focusSlider.value = pumpSpeed.value      
+      updateConfig(focusSlider);
+     }
+    }
+    stopPump.onclick = () => {
+      pumpSpeed.value = 0;
+      focusSlider.value = 0;
+      updateConfig(focusSlider);
+    }
     autoFocus.onclick = () => {
       updateConfig(autoFocus);
     }
@@ -890,7 +915,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     }
 
     mSSID.onchange = () => {
-      console.log("xclk:" , xclk);
       updateConfig(mSSID);        
     } 
 
