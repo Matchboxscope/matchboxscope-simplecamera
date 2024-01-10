@@ -153,7 +153,7 @@ unsigned long xclk = 20;
 int myRotation = 0;
 bool isStack = false;
 bool isTimelapseAnglerfish = false;
-bool isAnglerfishExposureBracketing = false;
+bool isAnglerfishExposureBracketing = true;// false;
 bool isTimelapseGeneral = false;
 
 // minimal frame duration in ms, effectively 1/maxFPS

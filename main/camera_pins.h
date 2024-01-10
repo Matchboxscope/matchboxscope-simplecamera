@@ -67,7 +67,6 @@
 
 
 // For wired version (Anglerfish)
-/*
 #define ACCELSTEPPER 1
 #define STEPPER_MOTOR_DIR D2
 #define STEPPER_MOTOR_STEP D1
@@ -85,8 +84,9 @@
 #define STEPPER_MOTOR
 #define STEPPER_MOTOR_STEPS 200
 #define STEPPER_MOTOR_SPEED 20000
-*/
 
+
+/*
 #define STEPPER 1
 #define motorPin1 D7
 #define motorPin2 D8
@@ -98,7 +98,7 @@
 #define STEPPER_MOTOR_STEPS 200
 #define STEPPER_MOTOR_SPEED 20000
 //#define NEOPIXEL_PIN -1
-
+*/
 
 /*
 #define NUMPIXELS 16
