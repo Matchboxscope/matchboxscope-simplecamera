@@ -95,7 +95,7 @@ jobs:
 
     # run for Xiao Sense
     - name: Run PlatformIO
-      run: platformio run --environment seeed_xiao_esp32s3 
+      run: platformio run --target seeed_xiao_esp32s3
     - name: merge into one binary
       run: |
         cd ..
