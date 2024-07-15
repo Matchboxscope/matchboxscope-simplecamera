@@ -14,32 +14,37 @@
 #include "esp_gap_ble_api.h"
 #include "improv.h"
 #include "spinlock.h"
-#include "anglerfishcamsettings.h"
 #include <base64.h>
 #include <Adafruit_NeoPixel.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <HTTPClient.h>
+#include "HTTPClientESP32.h"
+#include <ArduinoWebsockets.h>
+#include "esp_wifi.h"
+#include "esp_camera.h"
+#include "FS.h"
+#include "SPI.h"
+#include "driver/i2c.h"
+#include <SD.h>
+#include "SD_MMC.h"
+#include "driver/rtc_io.h"
+#include <WiFi.h>
 
 // Upstream version string
 #include "version.h"
 // Pin Mappings
 #include "camera_pins.h"
 
-//#define ACCELSTEPPER
-
-#ifdef CAMERA_MODEL_XIAO
-#include <AccelStepper.h>
-#ifdef ACCELSTEPPER
-AccelStepper motor(1, STEPPER_MOTOR_STEP, STEPPER_MOTOR_DIR);
-#else
-AccelStepper motor(8, motorPin1, motorPin3, motorPin2, motorPin4);
-#endif
-#endif
+// #define ACCELSTEPPER
 
 // camera configuration
-#define CAM_NAME "Matchboxscope"
-#define MDNS_NAME "Matchboxscope"
-// camera module
-// #define CAMERA_MODEL_AI_THINKER
-// #define CAMERA_MODEL_XIAO
+#define CAM_NAME "UC2xSeeed"
+#define MDNS_NAME "UC2xSeeed"
+
+// UC2-ESP-realted stuff
+String baseURL = "NONE"; // Need to change this to the IP address of the server
+HTTPClientESP32 httpClient(baseURL);
 
 // Primary config, or defaults.
 struct station
@@ -70,8 +75,6 @@ int sketchSize;
 int sketchSpace;
 String sketchMD5;
 
-bool isMotorRunningFixedPosition = true;
-
 String uniqueID = "0";
 
 // Start with accesspoint mode disabled, wifi setup will activate it if
@@ -84,7 +87,9 @@ IPAddress gw;
 bool is_accesspoint = false;
 
 // Declare external function from app_httpd.cpp
+void scanConnectedDevices();
 extern void startCameraServer(int hPort, int sPort);
+extern void connectWebSocket();
 extern void serialDump();
 extern void saveCapturedImageGithub();
 
@@ -107,12 +112,6 @@ const char *mssid = "Blynk"; // default values
 const char *mpassword = "12345678";
 
 bool isSerialTransferMode = false;
-
-#ifdef NEOPIXEL_PIN
-Adafruit_NeoPixel pixels(NUMPIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
-#endif
-
-#define WIFI_WATCHDOG 15000
 
 // Select between full and simple index as the default.
 char default_index[] = "full";
@@ -152,8 +151,6 @@ unsigned long xclk = 20;
 // initial rotation of the camera image
 int myRotation = 0;
 bool isStack = false;
-bool isTimelapseAnglerfish = false;
-bool isAnglerfishExposureBracketing = true;// false;
 bool isTimelapseGeneral = false;
 
 // minimal frame duration in ms, effectively 1/maxFPS
@@ -241,14 +238,8 @@ void setLamp(int newVal)
 // Neopixel Control
 void setNeopixel(int newVal)
 {
-#ifdef NEOPIXEL_PIN
-  for (int i = 0; i < NUMPIXELS; i++)
-  {
-    pixels.setPixelColor(i, pixels.Color(newVal, newVal, newVal));
-  }
+  httpClient.ledarr_act(newVal, newVal, newVal);
   log_d("Setting Neopixel to %d", newVal);
-  pixels.show(); // Send the updated pixel colors to the hardware.
-#endif
 }
 
 // PWM Control
@@ -288,90 +279,40 @@ void initWifi()
   // TODO: Try to connect here if credentials are available
   //  load SSID/PW from SPIFFS
 
-  int n = WiFi.scanNetworks();
-  Serial.println("Scan completed.");
-  if (n == 0)
-  {
-    Serial.println("No network found");
-  }
-  else
-  {
-    Serial.print(n);
-    Serial.println(" networks are discovered");
-    for (int i = 0; i < n; ++i)
-    {
-      Serial.print(i + 1);
-      Serial.print(": ");
-      Serial.print(WiFi.SSID(i));
-      Serial.print(" (");
-      Serial.print(WiFi.RSSI(i));
-      Serial.println(")");
-      delay(10);
-    }
-  }
-  Serial.println("");
-
   String mssid_tmp = getWifiSSID(SPIFFS);
   String mpassword_tmp = getWifiPW(SPIFFS);
 
   uniqueID = getThreeDigitID();
-  String ssid = "Matchboxscope-" + uniqueID;
+  String ssid = "UC2xSeeed-" + uniqueID;
 
-  // if mssid_tmp is "" open access point
-  if (mssid_tmp == "")
-  {
-    // open Access Point with random ID
-    WiFi.disconnect(); // (resets the WiFi scan)
-    WiFi.mode(WIFI_AP);
-    WiFi.softAP(ssid.c_str(), "");
-    /*Doesn'T make sense to do this 100x
-    for (int iBlink = 0; iBlink < uniqueID; iBlink++)
-    {
-        setLamp(100);
-        delay(50);
-        setLamp(0);
-        delay(50);
-    }*/
+  // open Access Point with random ID
+  WiFi.disconnect(); // (resets the WiFi scan)
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(ssid.c_str(), "");
 
-    // Print the SSID to the serial monitor
-    Serial.print("Access point SSID: ");
-    Serial.println(ssid);
-    is_accesspoint = true;
-  }
-  else
-  { // try to connect to available Network
-    log_d("Try to connect to stored wifi network SSID: %s, PW: %s", mssid_tmp, mpassword_tmp);
-    WiFi.begin(mssid_tmp.c_str(), mpassword_tmp.c_str());
-    WiFi.setSleep(false);
-    log_d("Initi Wifi works");
+  // Attach the event handler: If a new UC2-ESP connects, we need to change the baseURL
+  WiFi.onEvent(onNewStationConnected, ARDUINO_EVENT_WIFI_AP_STAIPASSIGNED);
 
-    int nTrialWifiConnect = 0;
-    int nTrialWifiConnectMax = 4;
-    int tWaitWifiConnect = 500;
-    while (WiFi.status() != WL_CONNECTED)
-    {
-      log_d("Connecting to Wi-Fi...");
-      nTrialWifiConnect++;
-      delay(tWaitWifiConnect);
+  Serial.println("AP started");
+  Serial.print("SSID: ");
+  Serial.println(ssid);
+  Serial.print("IP Address: ");
+  Serial.println(WiFi.softAPIP());
+  // Print the SSID to the serial monitor
+  Serial.print("Access point SSID: ");
+  Serial.println(ssid);
+  is_accesspoint = true;
+}
 
-      if (nTrialWifiConnect > nTrialWifiConnectMax)
-      {
-        WiFi.disconnect(); // (resets the WiFi scan)
-        WiFi.mode(WIFI_AP);
+// Callback function to handle new device connections
+void onNewStationConnected(WiFiEvent_t event, WiFiEventInfo_t info)
+{
+  Serial.println("New device connected to the AP");
+  // scan devices connected to AP (if in AP mode)
+  scanConnectedDevices();
 
-        // open Access Point with random ID
-        WiFi.softAP(ssid.c_str(), "");
-        // blink_led(100, uniqueID);
-
-        Serial.println("Failed to connect to Wi-Fi => Creating AP");
-        // Print the SSID to the serial monitor
-        Serial.print("Access point SSID: ");
-        Serial.println(ssid);
-        is_accesspoint = true;
-        break;
-      }
-    }
-  }
+  // connect to websocket server (UC2-ESP)
+  httpClient.setBaseURL(baseURL);
 }
 
 void setupOTA()
@@ -745,14 +686,6 @@ void setup()
     Serial.println("Serial transfer mode disabled");
   }
 
-#ifdef NEOPIXEL_PIN
-  pixels.begin(); // This initializes the NeoPixel library.
-  pixels.setBrightness(255);
-  setNeopixel(0);
-#endif
-  setNeopixel(255);
-  delay(60);
-  setNeopixel(0);
   // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
   if (!psramFound())
   {
@@ -782,7 +715,6 @@ void setup()
   bool isFirstRun = isFirstBoot();
   if (isFirstRun)
   {
-    // disable any Anglerfish-related settings
     log_d("Remove SPIFFS");
     removePrefs(SPIFFS);
 
@@ -794,8 +726,6 @@ void setup()
     log_d("Set compiled date");
     setCompiledDate(SPIFFS);
 
-    // reset anglerfishmode
-    setIsTimelapseAnglerfish(false);
     setSerialFrameEnabled(false);
     setFrameIndex(SPIFFS, 0);
   }
@@ -805,53 +735,16 @@ void setup()
   // check if we want to acquire a stack instead of a single slice
   isStack = getAcquireStack(SPIFFS);
 
-  // only for Anglerfish if already focussed
-  isTimelapseAnglerfish = getIsTimelapseAnglerfish(); // set the global variable for the loop function
-
   // initialize SD card before LED!!
   // We initialize SD_MMC here rather than in setup() because SD_MMC needs to reset the light pin
   // with a different pin mode.
   // 1-bit mode as suggested here:https://dr-mntn.net/2021/02/using-the-sd-card-in-1-bit-mode-on-the-esp32-cam-from-ai-thinker
 
-#if defined(CAMERA_MODEL_AI_THINKER)
-  if (!SD_MMC.begin("/sdcard", true))
-  { // FIXME: this sometimes leads to issues Unix vs. Windows formating - text encoding? Sometimes it copies to "sdcard" => Autoformating does this!!!
-    Serial.println("SD Card Mount Failed");
-    // FIXME: This should be indicated in the GUI
-    sdInitialized = false;
-    setIsTimelapseAnglerfish(false);
-    isTimelapseAnglerfish = false;
-    // Flash the LED to show SD card is not connected
-    blink_led(50, 20);
-  }
-  else
-  {
-    sdInitialized = true;
-    Serial.println("SD Card Mounted");
-
-    // Check for an SD card
-    uint8_t cardType = SD_MMC.cardType();
-    if (cardType == CARD_NONE)
-    {
-      Serial.println("No SD card attached");
-      sdInitialized = false;
-    }
-    else
-    {
-      Serial.println(cardType);
-    }
-  }
-
-#elif defined(CAMERA_MODEL_XIAO)
   // Initialize SD card
   if (!SD.begin(21))
   {
     Serial.println("SD Card Mount on on XIAO Failed");
     sdInitialized = false;
-    setIsTimelapseAnglerfish(false);
-    isTimelapseAnglerfish = false;
-    // Flash the LED to show SD card is not connected
-    blink_led(5, 20);
   }
   else
   {
@@ -862,8 +755,6 @@ void setup()
     {
       Serial.println("No SD card attached");
       sdInitialized = false;
-      setIsTimelapseAnglerfish(false);
-      isTimelapseAnglerfish = false;
     }
     else
     {
@@ -890,78 +781,10 @@ void setup()
     }
   }
 
-#endif
-  // Start threads for background frame publishing and serial handling // FIXME: Is this really necessary?
-  if (!isTimelapseAnglerfish)
-  {
-    log_d("Starting saveCapturedImageGithubTask", "");
-    xTaskCreatePinnedToCore(
-        saveCapturedImageGithubTask,
-        "saveCapturedImageGithubTask",
-        10000,
-        NULL,
-        11,
-        NULL,
-        0);
-  }
-
   // loading previous settings
   imagesServed = getFrameIndex(SPIFFS);
   timelapseInterval = getTimelapseInterval(SPIFFS);
   autofocusInterval = getAutofocusInterval(SPIFFS);
-
-#if defined(CAMERA_MODEL_XIAO)
-// not before
-// setup stepper
-#ifdef ACCELSTEPPER
-  pinMode(STEPPER_MOTOR_DIR, OUTPUT);
-  if (STEPPER_MOTOR_M1 >= 0)
-    pinMode(STEPPER_MOTOR_M1, OUTPUT);
-  if (STEPPER_MOTOR_M2 >= 0)
-    pinMode(STEPPER_MOTOR_M2, OUTPUT);
-  if (STEPPER_MOTOR_M3 >= 0)
-    pinMode(STEPPER_MOTOR_M3, OUTPUT);
-  if (STEPPER_MOTOR_NOTRESET >= 0)
-    pinMode(STEPPER_MOTOR_NOTRESET, OUTPUT);
-  if (STEPPER_MOTOR_NOTSLEEP >= 0)
-    pinMode(STEPPER_MOTOR_NOTSLEEP, OUTPUT);
-  if (STEPPER_MOTOR_NOTRESET >= 0)
-    digitalWrite(STEPPER_MOTOR_NOTRESET, HIGH);
-  if (STEPPER_MOTOR_NOTSLEEP >= 0)
-    digitalWrite(STEPPER_MOTOR_NOTSLEEP, HIGH);
-  if (STEPPER_MOTOR_M1 >= 0)
-    digitalWrite(STEPPER_MOTOR_M1, HIGH);
-  if (STEPPER_MOTOR_M2 >= 0)
-    digitalWrite(STEPPER_MOTOR_M2, HIGH);
-  if (STEPPER_MOTOR_M3 >= 0)
-    digitalWrite(STEPPER_MOTOR_M3, HIGH);
-  pinMode(STEPPER_MOTOR_ENABLE, OUTPUT);
-  setMotorActive(true);
-  motor.setMaxSpeed(STEPPER_MOTOR_SPEED);
-  motor.setAcceleration(10000);
-  setMotorActive(false);
-#else
-  // 28byj motor
-  pinMode(motorPin1, OUTPUT);
-  pinMode(motorPin2, OUTPUT);
-  pinMode(motorPin3, OUTPUT);
-  pinMode(motorPin4, OUTPUT);
-  digitalWrite(motorPin1, LOW);
-  digitalWrite(motorPin2, LOW);
-  digitalWrite(motorPin3, LOW);
-  digitalWrite(motorPin4, LOW);
-  delay(1000);
-  motor.setMaxSpeed(500);
-  motor.setAcceleration(10000);
-  //motor.runToNewPosition(10000);
-  //motor.runToNewPosition(-10000);
-  setMotorActive(false);
-  
-#endif
-  motor.setSpeed(0);
-  motor.setCurrentPosition(0);
-
-#endif
 
   // Initialise and set the lamp
   ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
@@ -1001,19 +824,11 @@ void setup()
     Serial.println("Serial transfer mode enabled. To disable, type 'r' ");
     return;
   }
-  // before we start the WIFI - check if we are in deep-sleep/anglerfishmode
-  initAnglerfish(isTimelapseAnglerfish, isAnglerfishExposureBracketing);
 
   // WIFI-related settings
   Serial.println("...............");
   // start wifi AP or connect to AP
-
   initWifi();
-
-  setNeopixel(255);
-  delay(500);
-  setNeopixel(0);
-
   // propagate URLs to GUI
   calcURLs();
 
@@ -1053,7 +868,6 @@ void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int 
 void loop()
 {
 
-#if defined(CAMERA_MODEL_XIAO)
   if (Serial.available() > 0)
   {
     // String command = Serial.readString(); // Read the command until a newline character is received
@@ -1102,16 +916,8 @@ void loop()
         setSerialFrameEnabled(0);
         ESP.restart();
       }
-      else
-      {
-        flushSerial();
-        // capture image and return
-        grabRawFrameBase64();
-      }
-      flushSerial();
     }
   }
-#endif
 
   // Timelapse Imaging
   // Perform timelapse imaging
@@ -1162,54 +968,6 @@ void loop()
 
     if (otaEnabled)
       ArduinoOTA.handle();
-
-#ifdef CAMERA_MODEL_XIAO
-
-    if (not isMotorRunningFixedPosition)
-    {
-      if (motor.speed() == 0 or motor.isRunning() == 0)
-      {
-#ifdef ACCELSTEPPER
-        setMotorActive(false);
-#endif
-      }
-      else
-      {
-#ifdef ACCELSTEPPER
-        setMotorActive(true);
-
-#endif
-      }
-      motor.runSpeed();
-    }
-#endif
-  }
-}
-
-void loadAnglerfishCamSettings(int tExposure, int mGain)
-{
-  Serial.println("Resetting Camera Sensor Settings...");
-
-  // Apply manual settings for the camera
-  sensor_t *s = esp_camera_sensor_get();
-  s->set_framesize(s, FRAMESIZE_SVGA); // FRAMESIZE_QVGA);
-  s->set_gain_ctrl(s, 0);              // auto gain off (1 or 0)
-  s->set_exposure_ctrl(s, 0);          // auto exposure off (1 or 0)
-  s->set_agc_gain(s, mGain);           // set gain manually (0 - 30)
-  s->set_aec_value(s, tExposure);      // set exposure manually (0-1200)
-
-  // digest the settings => warmup camera
-  camera_fb_t *fb = NULL;
-  for (int iDummyFrame = 0; iDummyFrame < 2; iDummyFrame++)
-  {
-    // FIXME: Look at the buffer for the camera => flush vs. return
-    // log_d("Capturing dummy frame %i", iDummyFrame);
-    fb = esp_camera_fb_get();
-    if (!fb)
-      log_e("Camera frame error", false);
-    esp_camera_fb_return(fb);
-
-    int mean_intensity = get_mean_intensity(fb);
   }
 }
 
@@ -1271,146 +1029,6 @@ bool writePythonProcessingFile()
   }
 }
 
-void initAnglerfish(bool isTimelapseAnglerfish, bool isAnglerfishExposureBracketing)
-{
-  log_d("Anglerfishmode is: %i", isTimelapseAnglerfish);
-  if (isTimelapseAnglerfish)
-  {
-// activate LED FIXME:
-#ifdef CAMERA_MODEL_AI_THINKER
-    rtc_gpio_hold_dis(GPIO_NUM_4);
-#endif
-    // Create the processing file on the SD card
-    writePythonProcessingFile();
-
-    // ONLY IF YOU WANT TO CAPTURE in ANGLERFISHMODE
-    Serial.println("In timelapse anglerfish mode.");
-
-    // override LED intensity settings
-    lampVal = 255;
-    setLamp(lampVal * autoLamp);
-
-    // Save image to SD card
-    uint32_t frameIndex = getFrameIndex(SPIFFS) + 1;
-    if (frameIndex > 0 and frameIndex % autofocusInterval == 0 and autofocusInterval > 0)
-    {
-      log_d("Performing autofocus");
-      autoFocus(autofocus_min, autofocus_max, autofocus_stepsize);
-    }
-    // FIXME: decide which method to use..
-    setFrameIndex(SPIFFS, frameIndex);
-    // Get the compile date and time as a string
-    String compileDate = String(__DATE__) + " " + String(__TIME__);
-    // Remove spaces and colons from the compile date and time string
-    compileDate.replace(" ", "_");
-    compileDate.replace(":", "");
-    int stepSize = 2;
-    int stepMin = 270;
-    int stepMax = 296;
-    bool isAcquireStack = getAcquireStack(SPIFFS);
-    if (!isAcquireStack)
-    {
-      stepMin = 0;
-      stepMax = 1;
-      stepSize = 2;
-    }
-
-    long time1 = millis();
-    if (1) // for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize)
-    {
-      int iFocus = -1;
-      // setPWM(iFocus);
-      String folderName = "/" + String(imagesServed);
-      // FIXME: If we save single files to the SD card, the time to store them growth with every file
-      // workaround for now: We store them in a folders
-      // some insights:https://forum.arduino.cc/t/esp32-cam-drastic-slowdown-in-writing-to-the-sd-card-with-increasing-number-of-files/1094767
-      log_d("Creating folder %s", folderName);
-      SD.mkdir(folderName);
-      String filename = folderName + "/data_" + compileDate + "_timelapse_image_anglerfish_" + String(imagesServed) + "_z" + String(iFocus) + "_";
-
-      if (isAnglerfishExposureBracketing)
-      {
-        /*
-        Perform an exposure series in case the AEC doesn't work well
-        */
-        log_d("Anglerfish: Acquire Exposure Series");
-        // under expose
-        loadAnglerfishCamSettings(1, 0);
-        saveImage(filename + "texp_1", iFocus);
-
-        // over expose
-        loadAnglerfishCamSettings(5, 0);
-        saveImage(filename + "texp_5", iFocus);
-
-        // over expose
-        loadAnglerfishCamSettings(10, 0);
-        saveImage(filename + "texp_10", iFocus);
-
-        // over expose
-        loadAnglerfishCamSettings(50, 0);
-        saveImage(filename + "texp_50", iFocus);
-
-        // over expose
-        loadAnglerfishCamSettings(100, 0);
-        saveImage(filename + "texp_100", iFocus);
-
-        // over expose
-        loadAnglerfishCamSettings(500, 0);
-        saveImage(filename + "texp_500", iFocus);
-
-        // even more over expose
-        loadAnglerfishCamSettings(1000, 0);
-        saveImage(filename + "texp_1000", iFocus);
-      }
-      else
-      {
-        /*
-        take image using AEC
-        */
-        // let automatic intensity settle
-        camera_fb_t *fb = NULL;
-        for (int iDummyFrame = 0; iDummyFrame < 10; iDummyFrame++)
-        {
-          fb = esp_camera_fb_get();
-          if (!fb)
-            log_e("Camera frame error", false);
-          esp_camera_fb_return(fb);
-        }
-        saveImage(filename + "_AEC", -1);
-      }
-    }
-    setPWM(0);
-    imagesServed++;
-    log_d("Acquisition took %i ms", millis() - time1);
-
-    // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues?
-    setFrameIndex(SPIFFS, imagesServed);
-
-    // Sleep
-    if (timelapseInterval == -1)
-      timelapseInterval = 60; // do timelapse every five minutes if not set properly
-    Serial.print("Sleeping for ");
-    Serial.print(timelapseInterval);
-    Serial.println(" s");
-    static const uint64_t usPerSec = 1000000; // Conversion factor from microseconds to seconds
-    SD_MMC.end();                             // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
-
-    // turn off lamp entirely
-    pinMode(4, OUTPUT);
-    digitalWrite(4, LOW);
-    rtc_gpio_hold_en(GPIO_NUM_4); // Latch value when going into deep sleep
-
-    // go to deep sleep
-    esp_sleep_enable_timer_wakeup(timelapseInterval * usPerSec);
-    esp_deep_sleep_start();
-    return;
-  }
-  else
-  {
-    Serial.println("In livestreaming mode. Connecting to pre-set Wifi");
-  }
-}
-
 void flushSerial()
 {
   // flush serial
@@ -1466,45 +1084,67 @@ void grabRawFrameBase64()
 // move focus using accelstepper
 void moveFocusRelative(int steps, bool handleEnable = true)
 {
-#ifdef CAMERA_MODEL_XIAO
-// a very bad idea probably, but otherwise we may have concurancy with the loop function
-  if (handleEnable)
-    setMotorActive(true);
-  // log_i("Moving focus %d steps, currentposition %d", motor.currentPosition() + steps, motor.currentPosition());
-
-  // run motor to new position with relative movement
-  motor.setSpeed(STEPPER_MOTOR_SPEED);
-  motor.runToNewPosition(motor.currentPosition() + steps);
-  if (handleEnable)
-    setMotorActive(false);
-  #endif
+  int stepperid = 1;
+  int position = steps;
+  int speed = 1000;
+  int isabs = 0;
+  int isaccel = 1;
+  httpClient.motor_act(stepperid, position, speed, isabs, isaccel);
 }
 
-int getCurrentMotorPos()
+void scanConnectedDevices()
 {
-#ifdef CAMERA_MODEL_XIAO
-  return motor.currentPosition();
-#endif
+  Serial.println("Checking connected devices...");
+  // Get the list of connected devices
+  wifi_sta_list_t wifi_sta_list;
+  tcpip_adapter_sta_list_t adapter_sta_list;
+  memset(&wifi_sta_list, 0, sizeof(wifi_sta_list_t));
+  memset(&adapter_sta_list, 0, sizeof(tcpip_adapter_sta_list_t));
+
+  esp_wifi_ap_get_sta_list(&wifi_sta_list);
+  tcpip_adapter_get_sta_list(&wifi_sta_list, &adapter_sta_list);
+
+  for (int i = 0; i < adapter_sta_list.num; i++)
+  {
+    tcpip_adapter_sta_info_t station = adapter_sta_list.sta[i];
+    String ip = IPAddress(station.ip.addr).toString();
+    Serial.print("Device IP: ");
+    Serial.println(ip);
+
+    if (checkDeviceStatus(ip))
+    {
+      Serial.println("Device returned UC2");
+      baseURL = "http://" + ip;
+    }
+    else
+    {
+      Serial.println("Device did not return UC2");
+    }
+  }
 }
 
-void setSpeed(int speed)
+bool checkDeviceStatus(String ip)
 {
-#ifdef CAMERA_MODEL_XIAO
-  motor.setSpeed(speed);
-#endif
-}
+  HTTPClient http;
+  http.setTimeout(1000); // Set timeout to 1 second
+  String url = "http://" + ip + "/state_get";
+  for (int iTrial = 0; iTrial < 3; iTrial++)
+  {
+    http.begin(url);
+    int httpCode = http.GET();
 
-void setMotorActive(bool isActive)
-{
-#ifdef CAMERA_MODEL_XIAO
-#ifdef ACCELSTEPPER
-  // low means active
-  digitalWrite(STEPPER_MOTOR_ENABLE, !isActive);
-#else
-  digitalWrite(motorPin1, isActive);
-  digitalWrite(motorPin2, isActive);
-  digitalWrite(motorPin3, isActive);
-  digitalWrite(motorPin4, isActive);
-#endif
-#endif
+    if (httpCode == HTTP_CODE_OK)
+    {
+      String payload = http.getString();
+      Serial.println(payload);
+      http.end();
+      return payload.indexOf("UC2") != -1;
+    }
+    else
+    {
+      Serial.println("Failed to connect to device");
+      http.end();
+    }
+  }
+  return false;
 }

@@ -41,6 +41,12 @@
 #include "logo.h"
 #include "storage.h"
 
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <HTTPClient.h>
+#include <ArduinoWebsockets.h>
+#include "HTTPClientESP32.h"
+
 // only inlcude if file available
 #define HAS_GITHUB
 #ifdef HAS_GITHUB
@@ -54,19 +60,15 @@ extern void flashLED(int flashtime);
 extern void setLamp(int newVal);
 extern void setPWM(int newVal);
 extern void loadSpiffsToPrefs(fs::FS &fs);
-extern bool isTimelapseAnglerfish;
 extern void moveFocusRelative(int val, bool handleEnable);
-extern void setSpeed(int val);
-extern int getCurrentMotorPos();
 extern void setNeopixel(int);
-extern void setMotorActive(bool isActive);
+
 
 camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename, int pwmVal = -1);
 int autoFocus(int minPos, int maxPos, int focusStep);
 
 // External variables declared in the main .ino
-extern bool isMotorRunningFixedPosition;
 extern char myName[];
 extern char myVer[];
 extern char baseVersion[];
@@ -124,8 +126,57 @@ static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %
 httpd_handle_t stream_httpd = NULL;
 httpd_handle_t camera_httpd = NULL;
 
+// Webserver functions
+uint16_t websocket_server_port = 80;
+using namespace websockets;
+extern WebsocketsClient client;
+bool socketConnected = false;
+
 // Flag that can be set to kill all active streams
 bool streamKill;
+
+/*
+Websocket Stuff
+*/
+void onEventsCallback(WebsocketsEvent event, String data)
+{
+    if (event == WebsocketsEvent::ConnectionOpened)
+    {
+        Serial.println("Websocket Connection Opened");
+        socketConnected = true;
+    }
+    else if (event == WebsocketsEvent::ConnectionClosed)
+    {
+        Serial.println("Websocket Connection Closed");
+        socketConnected = false;
+        ESP.restart();
+    }
+}
+
+void onMessageCallback(WebsocketsMessage message)
+{
+    String data = message.data();
+    int index = data.indexOf("=");
+    if (index != -1)
+    {
+        String key = data.substring(0, index);
+        String value = data.substring(index + 1);
+
+        if (key == "MOVE_FOCUS")
+        {
+            Serial.println("Moving focus");
+        }
+
+        Serial.print("Key: ");
+        Serial.println(key);
+        Serial.print("Value: ");
+        Serial.println(value);
+    }
+}
+
+/*
+Server Stuff
+*/
 
 void serialDump()
 {
@@ -731,7 +782,6 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     // control focus motor
     else if (!strcmp(variable, "mFocusUp"))
     {
-        isMotorRunningFixedPosition = true;
         val = 50;
         Serial.print("Moving focus up");
         Serial.println(val);
@@ -739,7 +789,6 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     }
     else if (!strcmp(variable, "mFocusDown"))
     {
-        isMotorRunningFixedPosition = true;
         val = -50;
         Serial.print("Moving focus down");
         Serial.println(val);
@@ -747,7 +796,6 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     }
     else if (!strcmp(variable, "mAutoFocus"))
     {
-        isMotorRunningFixedPosition = true;
         Serial.print("Autofocus with default settings");
         autoFocus(-500, 500, 25);
     }
@@ -778,8 +826,7 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         // http://192.168.137.198/control?var=focusSlider&val=1000
         Serial.print("Moving focus at speed");
         Serial.println(val);
-        isMotorRunningFixedPosition = false;
-        setSpeed(val);
+        
     }
     else if (!strcmp(variable, "pwm") && (pwmVal != -1))
     {
@@ -930,7 +977,6 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"isStack\":\"%u\",", isStack);
         p += sprintf(p, "\"images_served\":\"%u\",", imagesServed);
         p += sprintf(p, "\"isTimelapseGeneral\":\"%u\",", isTimelapseGeneral);
-        p += sprintf(p, "\"anglerfishSlider\":\"%d\",", 1);
         p += sprintf(p, "\"focusSlider\":\"%d\",", 1);
         p += sprintf(p, "\"timelapseInterval\":\"%d\",", timelapseInterval);
         p += sprintf(p, "\"autofocusInterval\":\"%d\"", autofocusInterval);
@@ -1369,54 +1415,6 @@ static esp_err_t files_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t anglerfish_handler(httpd_req_t *req)
-{
-
-    Serial.println("Entering the Anglerfish mode");
-    for (int iFlash = 0; iFlash < 10; iFlash++)
-        flashLED(75);
-    Serial.println("Going into deepsleep mode");
-
-    if (sdInitialized)
-    {
-        // save all settings from gui
-        writePrefsToSSpiffs(SPIFFS);
-
-        // this will set the anglerfish into a periodic deep-sleep awake timelapse
-        setIsTimelapseAnglerfish(true);
-        getIsTimelapseAnglerfish();
-        static char json_response[1024];
-        char *p = json_response;
-        *p++ = '{';
-        p += sprintf(p, "You have enabled long-time timelpase - remove the SD card to wake up from deepsleep mode #Schneewittchen...");
-        *p++ = '}';
-        *p++ = 0;
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-        httpd_resp_send(req, json_response, strlen(json_response));
-#if defined(CAMERA_MODEL_AI_THINKER)
-        SD_MMC.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
-#elif defined(CAMERA_MODEL_XIAO)
-        SD.end(); // FIXME: may cause issues when file not closed? categoreis: LED/SD-CARD issues
-#endif
-
-        delay(2000);
-        ESP.restart();
-    }
-    else
-    {
-        static char json_response[1024];
-        char *p = json_response;
-        *p++ = '{';
-        p += sprintf(p, "SD card not initialized - please insert SD card and restart");
-        *p++ = '}';
-        *p++ = 0;
-        httpd_resp_set_type(req, "application/json");
-        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-        httpd_resp_send(req, json_response, strlen(json_response));
-    }
-    return 0;
-}
 
 static esp_err_t index_handler(httpd_req_t *req)
 {
@@ -1525,6 +1523,7 @@ static esp_err_t gallery_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Content-Encoding", "identity");
     return httpd_resp_send(req, (const char *)index_gallery_html, index_gallery_html_len);
 }
+
 
 void startCameraServer(int hPort, int sPort)
 {
@@ -1646,11 +1645,6 @@ void startCameraServer(int hPort, int sPort)
         .method = HTTP_GET,
         .handler = uploadgithub_handler,
         .user_ctx = NULL};
-    httpd_uri_t anglerfish_uri = {
-        .uri = "/anglerfishmode",
-        .method = HTTP_GET,
-        .handler = anglerfish_handler,
-        .user_ctx = NULL};
 
     // Request Handlers; config.max_uri_handlers (above) must be >= the number of handlers
     config.server_port = hPort;
@@ -1681,7 +1675,6 @@ void startCameraServer(int hPort, int sPort)
         httpd_register_uri_handler(camera_httpd, &stop_uri);
         httpd_register_uri_handler(camera_httpd, &uploadgithub_uri);
         httpd_register_uri_handler(camera_httpd, &mac_uri);
-        httpd_register_uri_handler(camera_httpd, &anglerfish_uri);
         httpd_register_uri_handler(camera_httpd, &files_uri);
         httpd_register_uri_handler(camera_httpd, &downloadfile_uri);
     }
@@ -1715,13 +1708,10 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
     {
 
         int maxFocusValue = 0;
-        isMotorRunningFixedPosition = true;
 
         // Move to start position
-        int currentPosition = getCurrentMotorPos();
         int bestPosition = minPos;
         int range = maxPos - minPos;
-        setMotorActive(true);
         moveFocusRelative(minPos, false);
 
         // Scan through range and measure focus quality
@@ -1756,7 +1746,8 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
                 { // sometmies the same image is returned twice..not sure why..
                     break;
                 }
-                else{
+                else
+                {
                     focusValue = -1;
                 }
             }
@@ -1769,15 +1760,12 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
                 maxFocusValue = focusValue;
                 bestPosition = iFocus * focusStep;
             }
-
-            
         }
 
         // Move back to best position
         moveFocusRelative(-range, false);
         delay(1000);
         moveFocusRelative(bestPosition, false);
-        setMotorActive(false);
         Serial.println("Autofocus complete. Best position: " + String(bestPosition));
         return bestPosition;
     }
@@ -1835,7 +1823,6 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
 
         // Move back to best position
         setPWM(minPos + bestPosition * focusStep);
-        setMotorActive(false);
         Serial.println("Autofocus complete. Best position: " + String(bestPosition));
         return bestPosition;
     }
@@ -1911,7 +1898,7 @@ bool saveImage(String filename, int pwmVal)
 #if defined(CAMERA_MODEL_AI_THINKER)
         fs::FS &fs = SD_MMC;
 #elif defined(CAMERA_MODEL_XIAO)
-                  // https://github.com/limengdu/SeeedStudio-XIAO-ESP32S3-Sense-camera/blob/56580ab8e438d82a91fcbe47a8412cf9d29a6b76/take_photos/take_photos.ino#L33
+        // https://github.com/limengdu/SeeedStudio-XIAO-ESP32S3-Sense-camera/blob/56580ab8e438d82a91fcbe47a8412cf9d29a6b76/take_photos/take_photos.ino#L33
         fs::FS &fs = SD;
 #endif
         String extension = ".jpg";

@@ -10,7 +10,6 @@ extern int lampVal;      // The current Lamp value
 extern bool autoLamp;    // Automatic lamp mode
 extern int xclk;         // Camera module clock speed
 extern int minFrameTime; // Limits framerate
-extern bool isTimelapseAnglerfish;   // Anglerfish mode
 extern char *mssid;
 extern char *mpassword;
 extern uint32_t frameIndex;
@@ -161,7 +160,6 @@ void writePrefsToSSpiffs(fs::FS &fs)
   jsonDoc["dcw"] = s->status.dcw;
   jsonDoc["colorbar"] = s->status.colorbar;
   jsonDoc["rotate"] = String(myRotation);
-  jsonDoc["isTimelapseAnglerfish"] = isTimelapseAnglerfish;
   jsonDoc["mssid"] = mssid;
   jsonDoc["mpassword"] = mpassword;
   jsonDoc["frameIndex"] = frameIndex ;
@@ -430,7 +428,6 @@ void setFrameIndex(fs::FS &fs, int value)
   // Open preferences with a namespace/key pair
   // it seems this survives a corruption of the SPIFFS!
   Preferences preferences;
-  isTimelapseAnglerfish = value;
   preferences.begin(groupName, false);
 
   // Save the boolean value
@@ -569,33 +566,6 @@ write to SPIFFS and the file gets corrupted or empty, we will loose these settin
 
 
 
-void setIsTimelapseAnglerfish(bool value) {
-  // Open preferences with a namespace/key pair
-  // it seems this survives a corruption of the SPIFFS!
-  Preferences preferences;
-  isTimelapseAnglerfish = value;
-  preferences.begin(groupName, false);
-
-  // Save the boolean value
-  preferences.putBool(isAnglerfishModeKey, value);
-
-  // Close the preferences
-  preferences.end();
-}
-
-bool getIsTimelapseAnglerfish(){
-  // Open preferences with a namespace/key pair
-  Preferences preferences;
-  preferences.begin(groupName, false);
-
-  // Load the boolean value
-  bool value = preferences.getBool(isAnglerfishModeKey, false);
-
-  // Close the preferences
-  preferences.end();
-
-  return value;
-}
 
 static const char dateKey[] = "date";
 
