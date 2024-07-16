@@ -417,7 +417,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
 
 bool isStreaming = false;
 
-
 static esp_err_t cmd_handler(httpd_req_t *req)
 {
     char *buf;
@@ -1473,7 +1472,6 @@ void startCameraServer(int hPort, int sPort)
 
 int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
 {
-#if defined(CAMERA_MODEL_XIAO)
     if (isAutofocusMotorized)
     {
 
@@ -1541,7 +1539,7 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
     }
     else
     {
-
+        // This is for voice-coil based autofocus 
         int maxFocusValue = 0;
         int bestPosition = 0;
         int range = maxPos - minPos;
@@ -1596,7 +1594,6 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
         Serial.println("Autofocus complete. Best position: " + String(bestPosition));
         return bestPosition;
     }
-#endif
 }
 
 bool saveImage(String filename, int pwmVal)

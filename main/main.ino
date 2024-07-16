@@ -87,8 +87,6 @@ int streamPort = 81;
 const char *mssid = "Blynk"; // default values
 const char *mpassword = "12345678";
 
-bool isSerialTransferMode = false;
-
 // Select between full and simple index as the default.
 char default_index[] = "full";
 
@@ -162,23 +160,14 @@ extern bool saveImage(String filename, int pwmVal);
 // will be returned for all http requests
 String critERR = "";
 
-
 // Lamp Control
 void setLamp(int newVal)
 {
-  if (newVal != -1 and !BUSY_SET_LED)
-  {
-    BUSY_SET_LED = true;
-    // Apply a logarithmic function to the scale.
-    int brightness = round((pow(2, (1 + (newVal * 0.02))) - 2) / 6 * pwmMax);
-    ledcWrite(lampChannel, brightness);
-    Serial.print("Lamp: ");
-    Serial.print(newVal);
-    Serial.print("%, pwm = ");
-    Serial.println(brightness);
-    BUSY_SET_LED = false;
-    delay(15); // settle time
-  }
+  // Apply a logarithmic function to the scale.
+  int current = newVal;
+  httpClient.pwm_act(2, current);
+  Serial.print("Current: ");
+  Serial.println(newVal);
 }
 
 // Neopixel Control
@@ -191,12 +180,11 @@ void setNeopixel(int newVal)
 // PWM Control
 void setPWM(int newVal)
 {
-     // Apply a logarithmic function to the scale.
-    int current = newVal;
-    httpClient.pwm_act(1, current);
-    Serial.print("Current: ");
-    Serial.println(newVal);
-    
+  // Apply a logarithmic function to the scale.
+  int current = newVal;
+  httpClient.pwm_act(1, current);
+  Serial.print("Current: ");
+  Serial.println(newVal);
 }
 
 String getThreeDigitID()
@@ -350,8 +338,6 @@ bool StartCamera()
     config.fb_count = 1;
   }
 
-
-
   // camera init
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK)
@@ -420,19 +406,6 @@ bool StartCamera()
       s->set_vflip(s, 1);       // flip it back
       s->set_brightness(s, 1);  // up the blightness just a bit
       s->set_saturation(s, -2); // lower the saturation
-    }
-
-    if (isSerialTransferMode)
-    {
-      sensor_t *s = esp_camera_sensor_get();
-      s->set_hmirror(s, 1);
-      s->set_vflip(s, 1);
-
-      // enable manual camera settings
-      s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
-      s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
-      s->set_aec_value(s, 100);   // set exposure manually (0-1200)
-      s->set_agc_gain(s, 0);      // set gain manually (0 - 30)
     }
 
     /*
@@ -518,21 +491,8 @@ int get_mean_intensity(camera_fb_t *fb)
 void setup()
 {
   // check if we want to transfer images via serial or not
-  isSerialTransferMode = getSerialFrameEnabled();
-  if (isSerialTransferMode)
-  {
-    // Start Serial
-    Serial.begin(2000000);
-    Serial.println("Serial transfer mode enabled");
-    Serial.setTimeout(20);
-    Serial.println("Go to this website, connect the camera and try it out yourself: https://matchboxscope.github.io/blog/SerialCamera");
-  }
-  else
-  {
-    // Start Serial
-    Serial.begin(115200);
-    Serial.println("Serial transfer mode disabled");
-  }
+  // Start Serial
+  Serial.begin(115200);
 
   // Warn if no PSRAM is detected (typically user error with board selection in the IDE)
   if (!psramFound())
@@ -666,13 +626,6 @@ void setup()
     Serial.println("No Internal Filesystem, cannot load or save preferences");
   }
 
-  // if we only transfer images over serial, we don't need wifi
-  if (isSerialTransferMode)
-  {
-    Serial.println("Serial transfer mode enabled. To disable, type 'r' ");
-    return;
-  }
-
   // WIFI-related settings
   Serial.println("...............");
   // start wifi AP or connect to AP
@@ -706,173 +659,62 @@ void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int 
   }
 }
 
+long t_last_check_uc2connected = 0;
+long t_intervall_check_uc2connected = 10;
+
 void loop()
 {
-
-  if (Serial.available() > 0)
-  {
-    // String command = Serial.readString(); // Read the command until a newline character is received
-    // if (command.length() > 1 && command.charAt(0) == 't')
-
-    String command = Serial.readString();
-    if (not isSerialTransferMode && command.length() > 1 && command.charAt(0) == 's')
-    {
-      // change settings to serial transfer mode
-      isSerialTransferMode = true;
-      Serial.begin(2000000);
-      Serial.setTimeout(20);
-      setSerialFrameEnabled(1);
-      // we can only switch from JPEG to RAW after a restart
-      ESP.restart();
-      // TODO: Stop any stream on webservers
-    }
-    else
-    {
-      // Check for incoming serial commands
-      if (command.length() > 1 && command.charAt(0) == 't')
-      {
-        // exposure time
-        int value = command.substring(1).toInt(); // Extract the numeric part of the command and convert it to an integer
-        // Use the value as needed
-        // Apply manual settings for the camera
-        sensor_t *s = esp_camera_sensor_get();
-        s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
-        s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
-        s->set_aec_value(s, value); // set exposure manually (0-1200)
-      }
-      else if (command.length() > 1 && command.charAt(0) == 'g')
-      {
-        // gain
-        int value = command.substring(1).toInt(); // Extract the numeric part of the command and convert it to an integer
-
-        // Apply manual settings for the camera
-        sensor_t *s = esp_camera_sensor_get();
-        s->set_gain_ctrl(s, 0);     // auto gain off (1 or 0)
-        s->set_exposure_ctrl(s, 0); // auto exposure off (1 or 0)
-        s->set_agc_gain(s, value);  // set gain manually (0 - 30)
-      }
-      else if (command.length() > 0 && command.charAt(0) == 'r')
-      {
-        // restart and switch back to JPEG mode
-        setSerialFrameEnabled(0);
-        ESP.restart();
-      }
-    }
-  }
 
   // Timelapse Imaging
   // Perform timelapse imaging
   // timelapseInterval - will be changed by the httpd server
   // isTimelapseGeneral - will be changed by the httpd server //= getIsTimelapseGeneral(SPIFFS);
 
-  if (not isSerialTransferMode)
+
+  if ((millis() - t_last_check_uc2connected) > (1000 * t_intervall_check_uc2connected)){
+    // periodically scan for devices in case we missed a reconnect
+    scanConnectedDevices();
+    t_last_check_uc2connected = millis();
+  }
+
+  if (isTimelapseGeneral and timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
   {
-    if (isTimelapseGeneral and timelapseInterval > 0 and ((millis() - t_old) > (1000 * timelapseInterval)))
+    writePrefsToSSpiffs(SPIFFS);
+    // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
+    log_d("Time to save a new image", timelapseInterval);
+    t_old = millis();
+    frameIndex = getFrameIndex(SPIFFS) + 1;
+
+    // perform autofocus every n-times
+    if (frameIndex % autofocusInterval == 0 and autofocusInterval > 0)
     {
-      writePrefsToSSpiffs(SPIFFS);
-      // https://stackoverflow.com/questions/67090640/errors-while-interacting-with-microsd-card
-      log_d("Time to save a new image", timelapseInterval);
-      t_old = millis();
-      frameIndex = getFrameIndex(SPIFFS) + 1;
-
-      // perform autofocus every n-times
-      if (frameIndex % autofocusInterval == 0 and autofocusInterval > 0)
-      {
-        log_d("Performing autofocus");
-        autoFocus(autofocus_min, autofocus_max, autofocus_stepsize);
-      }
-      // save to SD card if existent
-      String filename = "/timelapse_image_scope_" + String(uniqueID) + "_" + String(millis()) + "_" + String(imagesServed);
-      if (getAcquireStack(SPIFFS))
-      { // FIXME: We could have a switch in the GUI for this settig
-        // acquire a stack
-        // FIXME: decide which method to use..
-        log_d("Acquireing stack");
-        imagesServed++;
-        acquireFocusStack(filename, 10);
-      }
-      else
-      {
-        // Acquire the image and save
-        imagesServed++;
-        log_d("Store single image");
-        int pwmVal = getPWMVal(SPIFFS);
-        saveImage(filename, pwmVal);
-      }
-
-      // set default lamp value for streaming
-      setLamp(lampVal);
-
-      // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
-      setFrameIndex(SPIFFS, frameIndex);
+      log_d("Performing autofocus");
+      autoFocus(autofocus_min, autofocus_max, autofocus_stepsize);
     }
-  }
-}
+    // save to SD card if existent
+    String filename = "/timelapse_image_scope_" + String(uniqueID) + "_" + String(millis()) + "_" + String(imagesServed);
+    if (getAcquireStack(SPIFFS))
+    { // FIXME: We could have a switch in the GUI for this settig
+      // acquire a stack
+      // FIXME: decide which method to use..
+      log_d("Acquireing stack");
+      imagesServed++;
+      acquireFocusStack(filename, 10);
+    }
+    else
+    {
+      // Acquire the image and save
+      imagesServed++;
+      log_d("Store single image");
+      int pwmVal = getPWMVal(SPIFFS);
+      saveImage(filename, pwmVal);
+    }
 
-bool writePythonProcessingFile()
-{
-  char filename[] = "/loadTimelapse.py";
+    // set default lamp value for streaming
+    setLamp(lampVal);
 
-  if (SD.exists(filename))
-  {
-    Serial.println("File already exists!");
-    return false;
-  }
-
-  File codeFile = SD.open(filename, FILE_WRITE);
-
-  if (codeFile)
-  {
-    codeFile.println("#%%");
-    codeFile.println("import os");
-    codeFile.println("import cv2");
-    codeFile.println("import numpy as np");
-    codeFile.println("import tifffile as tif");
-    codeFile.println("");
-    codeFile.println("base_dir = '/Volumes/SD'  # Modify this as needed");
-    codeFile.println("folder_count = 0");
-    codeFile.println("save_dir = '/Users/bene/Downloads'");
-    codeFile.println("experiment_name = '2023_10_24-Longtime_Autofocus_Test_1minPerImage'");
-    codeFile.println("tiff_filename = os.path.join(save_dir, experiment_name+ '.tif')");
-    codeFile.println("allImages = []");
-    codeFile.println("nFilesNotFound = 0");
-    codeFile.println("while True:");
-    codeFile.println("    current_folder = os.path.join(base_dir, str(folder_count))");
-    codeFile.println("    if not os.path.exists(current_folder):");
-    codeFile.println("        nFilesNotFound+=1");
-    codeFile.println("        if nFilesNotFound > 2:");
-    codeFile.println("            print('Reached end of folders')");
-    codeFile.println("            break");
-    codeFile.println("        continue");
-    codeFile.println("    nFilesNotFound = 0");
-    codeFile.println("    jpg_files = [f for f in os.listdir(current_folder) if f.endswith('.jpg')]");
-    codeFile.println("    try:");
-    codeFile.println("        image = cv2.imread(os.path.join(current_folder, jpg_files[0]))");
-    codeFile.println("        image = np.mean(image, axis=2).astype(np.uint8)");
-    codeFile.println("        allImages.append(image)");
-    codeFile.println("        print('writing file %s to stack' % os.path.join(current_folder, jpg_files[0]))");
-    codeFile.println("    except Exception as e:");
-    codeFile.println("        print(e)");
-    codeFile.println("        print('Could not find image in folder %s' % current_folder)");
-    codeFile.println("    folder_count += 1");
-    codeFile.println("tif.imwrite(tiff_filename, np.array(allImages))");
-    codeFile.close();
-    Serial.println("Code saved to SD card!");
-    return true;
-  }
-  else
-  {
-    Serial.println("Error opening file for writing.");
-    return false;
-  }
-}
-
-void flushSerial()
-{
-  // flush serial
-  while (Serial.available() > 0)
-  {
-    char c = Serial.read();
+    // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
+    setFrameIndex(SPIFFS, frameIndex);
   }
 }
 
