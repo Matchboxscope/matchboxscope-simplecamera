@@ -4,7 +4,6 @@
 #include <esp_task_wdt.h>
 #include <WiFi.h>
 #include <DNSServer.h>
-#include <ArduinoOTA.h>
 #include "parsebytes.h"
 #include "time.h"
 #include <ESPmDNS.h>
@@ -30,6 +29,9 @@
 #include "SD_MMC.h"
 #include "driver/rtc_io.h"
 #include <WiFi.h>
+// Internal filesystem (SPIFFS)
+// used for non-volatile camera settings
+#include "storage.h"
 
 // Upstream version string
 #include "version.h"
@@ -46,34 +48,8 @@
 String baseURL = "NONE"; // Need to change this to the IP address of the server
 HTTPClientESP32 httpClient(baseURL);
 
-// Primary config, or defaults.
-struct station
-{
-  const char ssid[65];
-  const char password[65];
-  const bool dhcp;
-}; // do no edit
-
 // Camera config structure
 camera_config_t config;
-
-// Internal filesystem (SPIFFS)
-// used for non-volatile camera settings
-#include "storage.h"
-
-//*** Improv
-#define MAX_ATTEMPTS_WIFI_CONNECTION 20
-
-uint8_t x_buffer[16];
-uint8_t x_position = 0;
-
-int frameWidth = 0;  // Width of the image frame
-int frameHeight = 0; // Height of the image frame
-
-// Sketch Info
-int sketchSize;
-int sketchSpace;
-String sketchMD5;
 
 String uniqueID = "0";
 
@@ -142,11 +118,7 @@ int sensorPID;
 // Camera module bus communications frequency.
 // Originally: config.xclk_freq_mhz = 20000000, but this lead to visual artifacts on many modules.
 // See https://github.com/espressif/esp32-camera/issues/150#issuecomment-726473652 et al.
-#if defined(CAMERA_MODEL_AI_THINKER)
-unsigned long xclk = 8;
-#elif defined(CAMERA_MODEL_XIAO)
 unsigned long xclk = 20;
-#endif
 
 // initial rotation of the camera image
 int myRotation = 0;
@@ -170,21 +142,13 @@ bool autoLamp = false; // Automatic lamp (auto on while camera running)
 int pwmVal = 0;        // default no-value
 bool BUSY_SET_LED = false;
 
-#if defined(CAMERA_MODEL_AI_THINKER)
-int lampChannel = 7; // a free PWM channel (some channels used by camera)
-int pwmChannel = 5;
-#elif defined(CAMERA_MODEL_XIAO)
 int lampChannel = 1; // a free PWM channel (some channels used by camera)
 int pwmChannel = 2;
-#endif
 int pwmfreq = 50000;   // 50K pwm frequency
 int pwmresolution = 9; // duty cycle bit range
 const int pwmMax = pow(2, pwmresolution) - 1;
 
 bool filesystem = true;
-
-bool otaEnabled = true;
-char otaPassword[] = "";
 
 const char *ntpServer = "";
 const long gmtOffset_sec = 0;
@@ -198,24 +162,6 @@ extern bool saveImage(String filename, int pwmVal);
 // will be returned for all http requests
 String critERR = "";
 
-// Notification LED
-void flashLED(int flashtime)
-{
-#ifdef CAMERA_MODEL_AI_THINKER
-  digitalWrite(LED_PIN, LED_ON);  // On at full power.
-  delay(flashtime);               // delay
-  digitalWrite(LED_PIN, LED_OFF); // turn Off
-#endif
-}
-
-void blink_led(int d, int times)
-{
-  for (int j = 0; j < times; j++)
-  {
-    flashLED(d);
-    delay(d);
-  }
-}
 
 // Lamp Control
 void setLamp(int newVal)
@@ -245,16 +191,12 @@ void setNeopixel(int newVal)
 // PWM Control
 void setPWM(int newVal)
 {
-  if (newVal != -1 and PWM_PIN >= 0)
-  {
-    // Apply a logarithmic function to the scale.
+     // Apply a logarithmic function to the scale.
     int current = newVal;
-    ledcWrite(pwmChannel, current);
+    httpClient.pwm_act(1, current);
     Serial.print("Current: ");
-    Serial.print(newVal);
-    Serial.print("%, pwm = ");
-    Serial.println(current);
-  }
+    Serial.println(newVal);
+    
 }
 
 String getThreeDigitID()
@@ -315,69 +257,6 @@ void onNewStationConnected(WiFiEvent_t event, WiFiEventInfo_t info)
   httpClient.setBaseURL(baseURL);
 }
 
-void setupOTA()
-{
-  // Set up OTA
-  if (otaEnabled)
-  {
-    // Start OTA once connected
-    Serial.println("Setting up OTA");
-    // Port defaults to 3232
-    // ArduinoOTA.setPort(3232);
-    // Hostname defaults to esp3232-[MAC]
-    ArduinoOTA.setHostname(mdnsName);
-    // No authentication by default
-    if (strlen(otaPassword) != 0)
-    {
-      ArduinoOTA.setPassword(otaPassword);
-      Serial.printf("OTA Password: %s\n\r", otaPassword);
-    }
-    else
-    {
-      Serial.printf("\r\nNo OTA password has been set! (insecure)\r\n\r\n");
-    }
-    ArduinoOTA
-        .onStart([]()
-                 {
-                String type;
-                if (ArduinoOTA.getCommand() == U_FLASH)
-                    type = "sketch";
-                else // U_SPIFFS
-                    // NOTE: if updating SPIFFS this would be the place to unmount SPIFFS using SPIFFS.end()
-                    type = "filesystem";
-                Serial.println("Start updating " + type);
-                // Stop the camera since OTA will crash the module if it is running.
-                // the unit will need rebooting to restart it, either by OTA on success, or manually by the user
-                Serial.println("Stopping Camera");
-                esp_err_t err = esp_camera_deinit();
-                critERR = "<h1>OTA Has been started</h1><hr><p>Camera has Halted!</p>";
-                critERR += "<p>Wait for OTA to finish and reboot, or <a href=\"control?var=reboot&val=0\" title=\"Reboot Now (may interrupt OTA)\">reboot manually</a> to recover</p>"; })
-        .onEnd([]()
-               { Serial.println("\r\nEnd"); })
-        .onProgress([](unsigned int progress, unsigned int total)
-                    { Serial.printf("Progress: %u%%\r", (progress / (total / 100))); })
-        .onError([](ota_error_t error)
-                 {
-                Serial.printf("Error[%u]: ", error);
-                if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-                else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-                else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
-                else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-                else if (error == OTA_END_ERROR) Serial.println("End Failed"); });
-    ArduinoOTA.begin();
-  }
-  else
-  {
-    Serial.println("OTA is disabled");
-
-    if (!MDNS.begin(mdnsName))
-    {
-      Serial.println("Error setting up MDNS responder!");
-    }
-    Serial.println("mDNS responder started");
-  }
-}
-
 void calcURLs()
 {
   // Note AP details
@@ -404,37 +283,6 @@ void calcURLs()
 bool StartCamera()
 {
   bool initSuccess = false;
-#if defined(CAMERA_MODEL_AI_THINKER)
-
-  // Populate camera config structure with hardware and other defaults
-  config.ledc_channel = LEDC_CHANNEL_0;
-  config.ledc_timer = LEDC_TIMER_0;
-  config.pin_d0 = Y2_GPIO_NUM;
-  config.pin_d1 = Y3_GPIO_NUM;
-  config.pin_d2 = Y4_GPIO_NUM;
-  config.pin_d3 = Y5_GPIO_NUM;
-  config.pin_d4 = Y6_GPIO_NUM;
-  config.pin_d5 = Y7_GPIO_NUM;
-  config.pin_d6 = Y8_GPIO_NUM;
-  config.pin_d7 = Y9_GPIO_NUM;
-  config.pin_xclk = XCLK_GPIO_NUM;
-  config.pin_pclk = PCLK_GPIO_NUM;
-  config.pin_vsync = VSYNC_GPIO_NUM;
-  config.pin_href = HREF_GPIO_NUM;
-  config.pin_sscb_sda = SIOD_GPIO_NUM;
-  config.pin_sscb_scl = SIOC_GPIO_NUM;
-  config.pin_pwdn = PWDN_GPIO_NUM;
-  config.pin_reset = RESET_GPIO_NUM;
-  config.xclk_freq_hz = xclk * 1000000;
-  config.pixel_format = PIXFORMAT_JPEG;
-  config.fb_location = CAMERA_FB_IN_PSRAM;
-
-  // Low(ish) default framesize and quality
-  config.frame_size = FRAMESIZE_SVGA;
-  config.grab_mode = CAMERA_GRAB_LATEST;
-  config.jpeg_quality = 12;
-  config.fb_count = 2;
-#elif defined(CAMERA_MODEL_XIAO)
   Serial.println("Xiao Sense Camera initialization");
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -502,7 +350,7 @@ bool StartCamera()
     config.fb_count = 1;
   }
 
-#endif
+
 
   // camera init
   esp_err_t err = esp_camera_init(&config);
@@ -832,13 +680,6 @@ void setup()
   // propagate URLs to GUI
   calcURLs();
 
-  // setup OTA
-  setupOTA();
-
-  // MDNS Config -- note that if OTA is NOT enabled this needs prior steps!
-  MDNS.addService("http", "tcp", 80);
-  // Serial.println("Added HTTP service to MDNS server");
-
   // Start the camera server
   startCameraServer(httpPort, streamPort);
 
@@ -965,9 +806,6 @@ void loop()
       // FIXME: we should increase framenumber even if failed - since a corrupted file may lead to issues? (imageSaved)
       setFrameIndex(SPIFFS, frameIndex);
     }
-
-    if (otaEnabled)
-      ArduinoOTA.handle();
   }
 }
 

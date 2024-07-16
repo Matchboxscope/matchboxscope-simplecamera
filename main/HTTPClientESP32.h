@@ -11,10 +11,11 @@ public:
     HTTPClientESP32(const String& baseURL);
     void sendPostRequest(const String& endpoint, const JsonDocument& jsonDoc);
     void sendPostRequest(const String& endpoint, const String payload);
-    void motor_act(int stepperid, int position, int speed, int isabs, int isaccel);
-    void ledarr_act(int r, int g, int b);
     void setBaseURL(const String& baseURL);
     void sendGetRequest(const String& endpoint);
+    void pwm_act(int channel, int value);
+    void ledarr_act(int r, int g, int b);
+    void motor_act(int stepperid, int position, int speed, int isabs, int isaccel);
     
 private:
     String _ssid;

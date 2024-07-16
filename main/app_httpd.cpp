@@ -56,13 +56,11 @@ const char *GITHUB_TOKEN = "";
 #endif
 
 // Functions from the main .ino
-extern void flashLED(int flashtime);
 extern void setLamp(int newVal);
 extern void setPWM(int newVal);
 extern void loadSpiffsToPrefs(fs::FS &fs);
 extern void moveFocusRelative(int val, bool handleEnable);
 extern void setNeopixel(int);
-
 
 camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename, int pwmVal = -1);
@@ -92,11 +90,7 @@ extern bool autoLamp;
 extern int pwmVal;
 extern bool filesystem;
 extern String critERR;
-extern int sketchSize;
-extern int sketchSpace;
-extern String sketchMD5;
-extern bool otaEnabled;
-extern char otaPassword[];
+
 extern unsigned long xclk;
 extern int sensorPID;
 extern int sdInitialized;
@@ -178,87 +172,6 @@ void onMessageCallback(WebsocketsMessage message)
 Server Stuff
 */
 
-void serialDump()
-{
-    Serial.println();
-    // Module
-    Serial.printf("Name: %s\r\n", myName);
-    Serial.printf("Firmware: %s (base: %s)\r\n", myVer, baseVersion);
-    float sketchPct = 100 * sketchSize / sketchSpace;
-    Serial.printf("Sketch Size: %i (total: %i, %.1f%% used)\r\n", sketchSize, sketchSpace, sketchPct);
-    Serial.printf("MD5: %s\r\n", sketchMD5.c_str());
-    Serial.printf("ESP sdk: %s\r\n", ESP.getSdkVersion());
-    if (otaEnabled)
-    {
-        if (strlen(otaPassword) != 0)
-        {
-            Serial.printf("OTA: Enabled, Password: %s\n\r", otaPassword);
-        }
-        else
-        {
-            Serial.printf("OTA: Enabled, No Password! (insecure)\n\r");
-        }
-    }
-    else
-    {
-        Serial.printf("OTA: Disabled\n\r");
-    }
-    Serial.printf("WiFi Mode: Client\r\n");
-    String ssidName = WiFi.SSID();
-    Serial.printf("WiFi Ssid: %s\r\n", ssidName.c_str());
-    Serial.printf("WiFi Rssi: %i\r\n", WiFi.RSSI());
-    String bssid = WiFi.BSSIDstr();
-    Serial.printf("WiFi BSSID: %s\r\n", bssid.c_str());
-    Serial.printf("WiFi IP address: %d.%d.%d.%d\r\n", ip[0], ip[1], ip[2], ip[3]);
-    if (!is_accesspoint)
-    {
-        Serial.printf("WiFi Netmask: %d.%d.%d.%d\r\n", net[0], net[1], net[2], net[3]);
-        Serial.printf("WiFi Gateway: %d.%d.%d.%d\r\n", gw[0], gw[1], gw[2], gw[3]);
-    }
-    Serial.printf("WiFi Http port: %i, Stream port: %i\r\n", httpPort, streamPort);
-    byte mac[6];
-    WiFi.macAddress(mac);
-    Serial.printf("WiFi MAC: %02X:%02X:%02X:%02X:%02X:%02X\r\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-    // System
-    int64_t sec = esp_timer_get_time() / 1000000;
-    int64_t upDays = int64_t(floor(sec / 86400));
-    int upHours = int64_t(floor(sec / 3600)) % 24;
-    int upMin = int64_t(floor(sec / 60)) % 60;
-    int upSec = sec % 60;
-    Serial.printf("System up: %" PRId64 ":%02i:%02i:%02i (d:h:m:s)\r\n", upDays, upHours, upMin, upSec);
-    Serial.printf("Active streams: %i, Previous streams: %lu, Images captured: %lu\r\n", streamCount, streamsServed, imagesServed);
-    Serial.printf("CPU Freq: %i MHz, Xclk Freq: %i MHz\r\n", ESP.getCpuFreqMHz(), xclk);
-    Serial.printf("Heap: %i, free: %i, min free: %i, max block: %i\r\n", ESP.getHeapSize(), ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
-    if (psramFound())
-    {
-        Serial.printf("Psram: %i, free: %i, min free: %i, max block: %i\r\n", ESP.getPsramSize(), ESP.getFreePsram(), ESP.getMinFreePsram(), ESP.getMaxAllocPsram());
-    }
-    else
-    {
-        Serial.printf("Psram: Not found; please check your board configuration.\r\n");
-        Serial.printf("- High resolution/quality settings will show incomplete frames to low memory.\r\n");
-    }
-    // Filesystems
-    if (filesystem && (SPIFFS.totalBytes() > 0))
-    {
-        Serial.printf("Spiffs: %i, used: %i\r\n", SPIFFS.totalBytes(), SPIFFS.usedBytes());
-    }
-    else
-    {
-        Serial.printf("Spiffs: No filesystem found, please check your board configuration.\r\n");
-        Serial.printf("- Saving and restoring camera settings will not function without this.\r\n");
-    }
-    Serial.println("Preferences file: ");
-    printPrefs(SPIFFS);
-    if (critERR.length() > 0)
-    {
-        Serial.printf("\r\n\r\nAn error or halt has occurred with Camera Hardware, see previous messages.\r\n");
-        Serial.printf("A reboot is required to recover from this.\r\nError message: (html)\r\n %s\r\n\r\n", critERR.c_str());
-    }
-    Serial.println();
-    return;
-}
-
 esp_err_t bitmap_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
@@ -312,52 +225,51 @@ static esp_err_t capture_handler(httpd_req_t *req)
     {
         setLamp(lampVal);
         delay(75); // coupled with the status led flash this gives ~150ms for lamp to settle.
-    }
-    flashLED(75); // little flash of status LED
 
-    int64_t fr_start = esp_timer_get_time();
+        int64_t fr_start = esp_timer_get_time();
 
-    fb = esp_camera_fb_get();
-    if (!fb)
-    {
-        Serial.println("CAPTURE: failed to acquire frame");
-        httpd_resp_send_500(req);
+        fb = esp_camera_fb_get();
+        if (!fb)
+        {
+            Serial.println("CAPTURE: failed to acquire frame");
+            httpd_resp_send_500(req);
+            if (autoLamp && (lampVal != -1))
+                setLamp(0);
+            return ESP_FAIL;
+        }
+        // camera_fb_t* fb = convolution(fb_);
+
+        httpd_resp_set_type(req, "image/jpeg");
+        httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+        size_t fb_len = 0;
+        if (fb->format == PIXFORMAT_JPEG)
+        {
+            fb_len = fb->len;
+            res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+        }
+        else
+        {
+            res = ESP_FAIL;
+            Serial.println("Capture Error: Non-JPEG image returned by camera module");
+        }
+        esp_camera_fb_return(fb);
+        // esp_camera_fb_return(fb_);
+        fb = NULL;
+
+        // save to SD card if existent
+        String filename = "/image" + String(imagesServed);
+        saveImage(filename);
+
+        int64_t fr_end = esp_timer_get_time();
+        Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
+        imagesServed++;
+        setFrameIndex(SPIFFS, imagesServed);
         if (autoLamp && (lampVal != -1))
+        {
             setLamp(0);
-        return ESP_FAIL;
-    }
-    // camera_fb_t* fb = convolution(fb_);
-
-    httpd_resp_set_type(req, "image/jpeg");
-    httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
-    size_t fb_len = 0;
-    if (fb->format == PIXFORMAT_JPEG)
-    {
-        fb_len = fb->len;
-        res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
-    }
-    else
-    {
-        res = ESP_FAIL;
-        Serial.println("Capture Error: Non-JPEG image returned by camera module");
-    }
-    esp_camera_fb_return(fb);
-    // esp_camera_fb_return(fb_);
-    fb = NULL;
-
-    // save to SD card if existent
-    String filename = "/image" + String(imagesServed);
-    saveImage(filename);
-
-    int64_t fr_end = esp_timer_get_time();
-    Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
-    imagesServed++;
-    setFrameIndex(SPIFFS, imagesServed);
-    if (autoLamp && (lampVal != -1))
-    {
-        setLamp(0);
+        }
     }
     return res;
 }
@@ -378,10 +290,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
     if (autoLamp && (lampVal != -1))
         setLamp(lampVal);
     streamCount = 1; // at present we only have one stream handler, so values are 0 or 1..
-    flashLED(75);    // double flash of status LED
-    delay(75);
-    flashLED(75);
-
     static int64_t last_frame = 0;
     if (!last_frame)
     {
@@ -509,101 +417,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
 
 bool isStreaming = false;
 
-static esp_err_t stream_handler_XIAO(httpd_req_t *req)
-{
-    camera_fb_t *fb = NULL;
-    struct timeval _timestamp;
-    esp_err_t res = ESP_OK;
-    size_t _jpg_buf_len = 0;
-    uint8_t *_jpg_buf = NULL;
-    char *part_buf[128];
-
-    static int64_t last_frame = 0;
-    if (!last_frame)
-    {
-        last_frame = esp_timer_get_time();
-    }
-
-    res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
-    if (res != ESP_OK)
-    {
-        return res;
-    }
-
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    httpd_resp_set_hdr(req, "X-Framerate", "60");
-
-    isStreaming = true;
-
-    while (true)
-    {
-
-        fb = esp_camera_fb_get();
-        if (!fb)
-        {
-            log_e("Camera capture failed");
-            res = ESP_FAIL;
-        }
-        else
-        {
-            _timestamp.tv_sec = fb->timestamp.tv_sec;
-            _timestamp.tv_usec = fb->timestamp.tv_usec;
-            if (fb->format != PIXFORMAT_JPEG)
-            {
-                bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
-                esp_camera_fb_return(fb);
-                fb = NULL;
-                if (!jpeg_converted)
-                {
-                    log_e("JPEG compression failed");
-                    res = ESP_FAIL;
-                }
-            }
-            else
-            {
-                _jpg_buf_len = fb->len;
-                _jpg_buf = fb->buf;
-            }
-        }
-        if (res == ESP_OK)
-        {
-            res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
-        }
-        if (res == ESP_OK)
-        {
-            size_t hlen = snprintf((char *)part_buf, 128, _STREAM_PART, _jpg_buf_len, _timestamp.tv_sec, _timestamp.tv_usec);
-            res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
-        }
-        if (res == ESP_OK)
-        {
-            res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
-        }
-        if (fb)
-        {
-            esp_camera_fb_return(fb);
-            fb = NULL;
-            _jpg_buf = NULL;
-        }
-        else if (_jpg_buf)
-        {
-            free(_jpg_buf);
-            _jpg_buf = NULL;
-        }
-        if (res != ESP_OK)
-        {
-            log_e("Send frame failed");
-            break;
-        }
-        int64_t fr_end = esp_timer_get_time();
-
-        int64_t frame_time = fr_end - last_frame;
-        frame_time /= 1000;
-    }
-
-    isStreaming = false;
-
-    return res;
-}
 
 static esp_err_t cmd_handler(httpd_req_t *req)
 {
@@ -615,8 +428,6 @@ static esp_err_t cmd_handler(httpd_req_t *req)
     char value[32] = {
         0,
     };
-
-    flashLED(75);
 
     buf_len = httpd_req_get_url_query_len(req) + 1;
     if (buf_len > 1)
@@ -826,7 +637,6 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         // http://192.168.137.198/control?var=focusSlider&val=1000
         Serial.print("Moving focus at speed");
         Serial.println(val);
-        
     }
     else if (!strcmp(variable, "pwm") && (pwmVal != -1))
     {
@@ -885,12 +695,6 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         periph_module_reset(PERIPH_I2C0_MODULE);
         periph_module_reset(PERIPH_I2C1_MODULE);
         Serial.print("REBOOT requested");
-        while (true)
-        {
-            flashLED(50);
-            delay(150);
-            Serial.print('.');
-        }
     }
     else
     {
@@ -1033,9 +837,7 @@ static esp_err_t logo_svg_handler(httpd_req_t *req)
 
 static esp_err_t dump_handler(httpd_req_t *req)
 {
-    flashLED(75);
     Serial.println("\r\nDump requested via Web");
-    serialDump();
     static char dumpOut[2000] = "";
     char *d = dumpOut;
     // Header
@@ -1056,9 +858,6 @@ static esp_err_t dump_handler(httpd_req_t *req)
     // Module
     d += sprintf(d, "Name: %s<br>\n", myName);
     d += sprintf(d, "Firmware: %s (base: %s)<br>\n", myVer, baseVersion);
-    float sketchPct = 100 * sketchSize / sketchSpace;
-    d += sprintf(d, "Sketch Size: %i (total: %i, %.1f%% used)<br>\n", sketchSize, sketchSpace, sketchPct);
-    d += sprintf(d, "MD5: %s<br>\n", sketchMD5.c_str());
     d += sprintf(d, "ESP sdk: %s<br>\n", ESP.getSdkVersion());
     // Network
     d += sprintf(d, "<h2>WiFi</h2>\n");
@@ -1130,7 +929,6 @@ static esp_err_t dump_handler(httpd_req_t *req)
 
 static esp_err_t stop_handler(httpd_req_t *req)
 {
-    flashLED(75);
     Serial.println("\r\nStream stop requested via Web");
     streamKill = true;
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
@@ -1146,7 +944,7 @@ static esp_err_t style_handler(httpd_req_t *req)
 
 static esp_err_t streamviewer_handler(httpd_req_t *req)
 {
-    flashLED(75);
+
     Serial.println("Stream viewer requested");
     httpd_resp_set_type(req, "text/html");
     httpd_resp_set_hdr(req, "Content-Encoding", "identity");
@@ -1155,7 +953,6 @@ static esp_err_t streamviewer_handler(httpd_req_t *req)
 
 static esp_err_t error_handler(httpd_req_t *req)
 {
-    flashLED(75);
     Serial.println("Sending error page");
     std::string s(error_html);
     size_t index;
@@ -1232,7 +1029,6 @@ void saveCapturedImageGithub()
         Serial.println("Camera capture failed");
         return;
     }
-    flashLED(75); // little flash of status LED
 
     if (autoLamp && (lampVal != -1))
     {
@@ -1333,11 +1129,7 @@ esp_err_t downloadfile_handler(httpd_req_t *req)
             {
                 free(buf);
 
-#if defined(CAMERA_MODEL_AI_THINKER)
-                fs::FS &fs = SD_MMC;
-#elif defined(CAMERA_MODEL_XIAO)
                 fs::FS &fs = SD;
-#endif
                 String filePath = "/" + String(filename);
                 log_d("Download file path: %s", filePath.c_str());
                 File file = fs.open(filePath);
@@ -1379,13 +1171,8 @@ esp_err_t downloadfile_handler(httpd_req_t *req)
 
 static esp_err_t files_handler(httpd_req_t *req)
 {
-// Scanning files on the SD card
-#if defined(CAMERA_MODEL_AI_THINKER)
-    fs::FS &fs = SD_MMC;
-#elif defined(CAMERA_MODEL_XIAO)
+    // Scanning files on the SD card
     fs::FS &fs = SD;
-#endif
-
     File file = fs.open(indexFileName);
     if (!file)
     {
@@ -1415,7 +1202,6 @@ static esp_err_t files_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-
 static esp_err_t index_handler(httpd_req_t *req)
 {
     char *buf;
@@ -1424,7 +1210,6 @@ static esp_err_t index_handler(httpd_req_t *req)
         0,
     };
 
-    flashLED(75);
     // See if we have a specific target (full/simple/portal) and serve as appropriate
     buf_len = httpd_req_get_url_query_len(req) + 1;
     if (buf_len > 1)
@@ -1508,14 +1293,6 @@ static esp_err_t index_handler(httpd_req_t *req)
     }
 }
 
-static esp_err_t holo_handler(httpd_req_t *req)
-{
-    Serial.println("Holo index page requested");
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, (const char *)index_holo_html, index_holo_html_len);
-}
-
 static esp_err_t gallery_handler(httpd_req_t *req)
 {
     Serial.println("Gallery index page requested");
@@ -1523,7 +1300,6 @@ static esp_err_t gallery_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Content-Encoding", "identity");
     return httpd_resp_send(req, (const char *)index_gallery_html, index_gallery_html_len);
 }
-
 
 void startCameraServer(int hPort, int sPort)
 {
@@ -1534,11 +1310,6 @@ void startCameraServer(int hPort, int sPort)
         .uri = "/",
         .method = HTTP_GET,
         .handler = index_handler,
-        .user_ctx = NULL};
-    httpd_uri_t index_holo_html_uri = {
-        .uri = "/holo",
-        .method = HTTP_GET,
-        .handler = holo_handler,
         .user_ctx = NULL};
     httpd_uri_t index_gallery_html_uri = {
         .uri = "/gallery",
@@ -1662,7 +1433,6 @@ void startCameraServer(int hPort, int sPort)
             httpd_register_uri_handler(camera_httpd, &cmd_uri);
             httpd_register_uri_handler(camera_httpd, &status_uri);
             httpd_register_uri_handler(camera_httpd, &capture_uri);
-            httpd_register_uri_handler(camera_httpd, &index_holo_html_uri);
             httpd_register_uri_handler(camera_httpd, &index_gallery_html_uri);
         }
 
@@ -1859,7 +1629,6 @@ bool saveImage(String filename, int pwmVal)
             setLamp(lampVal);
             delay(75); // coupled with the status led flash this gives ~150ms for lamp to settle.
         }
-        flashLED(75); // little flash of status LED
 
         int64_t fr_start = esp_timer_get_time();
 
@@ -1894,13 +1663,9 @@ bool saveImage(String filename, int pwmVal)
             setLamp(0);
         }
 
-// Save image to disk
-#if defined(CAMERA_MODEL_AI_THINKER)
-        fs::FS &fs = SD_MMC;
-#elif defined(CAMERA_MODEL_XIAO)
+        // Save image to disk
         // https://github.com/limengdu/SeeedStudio-XIAO-ESP32S3-Sense-camera/blob/56580ab8e438d82a91fcbe47a8412cf9d29a6b76/take_photos/take_photos.ino#L33
         fs::FS &fs = SD;
-#endif
         String extension = ".jpg";
         File imgFile = fs.open((filename + extension).c_str(), FILE_WRITE);
         if (!imgFile)

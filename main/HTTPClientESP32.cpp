@@ -106,3 +106,15 @@ void HTTPClientESP32::ledarr_act(int r, int g, int b){
     sendPostRequest("/ledarr_act", jsonDoc);
 
 }
+
+void HTTPClientESP32::pwm_act(int channel, int value){
+    // Send a value/channel id pair to set a pwm value on the ESP
+    /*
+    {"task": "/laser_act", "LASERid":0, "LASERval":1000, "LASERdespeckle":1, "LASERdespecklePeriod":20}
+    */
+    StaticJsonDocument<200> jsonDoc;
+    jsonDoc["LASERid"] = channel;
+    jsonDoc["LASERval"] = value;
+    sendPostRequest("/laser_act", jsonDoc);
+
+}

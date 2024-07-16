@@ -4,7 +4,6 @@
 #include <Preferences.h>
 
 // These are defined in the main .ino file
-extern void flashLED(int flashtime);
 extern int myRotation;   // Rotation
 extern int lampVal;      // The current Lamp value
 extern bool autoLamp;    // Automatic lamp mode
@@ -200,11 +199,6 @@ void filesystemStart()
     // if no existing spiffs partition exists one should be automagically created.
     Serial.println("SPIFFS Mount failed, this can happen on first-run initialisation");
     Serial.println("If it happens repeatedly check if a SPIFFS partition is present for your board?");
-    for (int i = 0; i < 10; i++)
-    {
-      flashLED(100); // Show SPIFFS failure
-      delay(100);
-    }
     delay(1000);
     Serial.println("Retrying..");
   }
