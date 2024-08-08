@@ -6,6 +6,25 @@ const uint8_t style_css[] = R"=====(/*
  * CSS for the esp32 cam webserver
  */
 
+/*
+ * CSS for the esp32 cam webserver
+ */
+
+  .input-group {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .input-group label {
+    margin-right: 1em;
+  }
+
+  .input-group button {
+    flex: 1;
+    margin: 0 0.5em;
+  }
+
 body {
   font-family: Arial,Helvetica,sans-serif;
   background: #181818;
@@ -122,18 +141,18 @@ button {
   line-height: 28px;
   cursor: pointer;
   color: #fff;
-  background: #ff3034;
+  background:  #00177d;
   border-radius: 5px;
   font-size: 16px;
   outline: 0
 }
 
 button:hover {
-  background: #ff494d
+  background: #00177d;
 }
 
 button:active {
-  background: #f21c21
+  background:  #00177d;
 }
 
 button.disabled {
@@ -168,7 +187,7 @@ input[type=range]::-webkit-slider-thumb {
   height: 22px;
   width: 22px;
   border-radius: 50px;
-  background: #ff3034;
+  background:  #00177d;
   cursor: pointer;
   -webkit-appearance: none;
   margin-top: -11.5px
@@ -192,7 +211,7 @@ input[type=range]::-moz-range-thumb {
   height: 22px;
   width: 22px;
   border-radius: 50px;
-  background: #ff3034;
+  background: #00177d;
   cursor: pointer
 }
 
@@ -222,7 +241,7 @@ input[type=range]::-ms-thumb {
   height: 22px;
   width: 22px;
   border-radius: 50px;
-  background: #ff3034;
+  background: #0800e5;
   cursor: pointer;
   height: 2px
 }
@@ -284,7 +303,7 @@ input[type=text] {
 }
 
 input:checked+.slider {
-  background-color: #ff3034
+  background-color: #00cd48
 }
 
 input:checked+.slider:before {
@@ -309,7 +328,7 @@ select {
 .close {
   position: absolute;
   z-index: 99;
-  background: #ff3034;
+  background: #006fdf;
   width: 16px;
   height: 16px;
   border-radius: 100px;
@@ -362,6 +381,7 @@ select {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
-})=====";
+}
+)=====";
 
 size_t style_css_len = sizeof(style_css)-1;

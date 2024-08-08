@@ -32,8 +32,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
         <img alt="ImJoy" src="https://ij.imjoy.io/assets/badge/open-in-imagej-js-badge.svg" style="float:left;" /></a></span>
         <button id="send-imjoy" style="float:left;">To ImJoy</button>
         <button id="toggle-stream" style="float:left;" class="hidden">Start Stream</button>
-        <button id="open-gallery" style="float:left;">Gallery</button>
-        <button id="open-holo" style="float:left;">Holo</button>
         <div id="wait-settings" style="float:left;" class="loader" title="Waiting for camera settings to load"></div>
       </div>
       <div id="content">
@@ -45,13 +43,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <div class="range-min">Off</div>
                 <input type="range" id="lamp" min="0" max="100" value="0" class="default-action">
                 <div class="range-max"><span style="font-size: 125%;">&#9888;</span>Full</div>
-              </div>
-              <div class="input-group hidden" id="autolamp-group" title="When enabled the lamp will only turn on while the camera is active">
-                <label for="autolamp">Auto Lamp</label>
-                <div class="switch">
-                  <input id="autolamp" type="checkbox" class="default-action">
-                  <label class="slider" for="autolamp"></label>
-                </div>
               </div>
               <div class="input-group hidden" id="pwm-group" title="PWM value.&#013;&#013;Warning:&#013;This controls an external element such as the PWM-driven Lens or the pump on pin 12.">
                 <label for="pwm">PWM</label>
@@ -71,34 +62,27 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <div>
                   <label id="valTimelapse"></label>
                 </div>
+              </div>     
+              <div class="input-group" id="stack-group">
+                <label for="stack">Stack Enable</label>
+                <div class="switch">
+                  <input id="stack" type="checkbox" class="default-action" checked="checked">
+                  <label class="slider" for="stack"></label>
+                </div>
+              </div>              
+              <div class="input-group" id="timelapse-group">
+                <label for="isTimelapse">Timelapse Enable</label>
+                <div class="switch">
+                  <input id="isTimelapse" type="checkbox" class="default-action" checked="checked">
+                  <label class="slider" for="isTimelapse"></label>
+                </div>
               </div>              
               <div class="input-group hidden" id="autofocusInterval-group" title="Autofocus Interval value.&#013;&#013;Warning:&#013;Choose a value when the microscope should start a new round of autofocus. 0 means no interval.">
-                <label for="autofocusInterval">Autofocus Interval (N)</label>
+                <label for="autofocusInterval">Autofocus Interval </label>
                 <input type="range" id="autofocusInterval" min="0" max="50" value="0" class="default-action" oninput="document.getElementById('valAutofocusInterval').innerHTML = this.value" />
                 <div>
                   <label id="valAutofocusInterval"></label>
                 </div>
-              </div>              
-              <div class="input-group hidden" id="anglerfish-group" title="Anglerfish Settings Set it to enter the deep-sleep mode with preset time value for periodic image capturing.">
-                <label for="AnglerfishSettings">AnglerfishSettings</label>
-                <div class="range-min">No</div>
-                <input type="range" min="0" max="100" value="0" id="anglerfishSlider" class="default-action">
-                <div class="range-max"><a href="d" id="anglerfishLink" style="display: none;">Click here to access the link</a></div>
-                <script>
-                  const anglerfishSlider = document.getElementById("anglerfishSlider");
-                  const anglerfishLink = document.getElementById("anglerfishLink");
-                  anglerfishSlider.addEventListener("input", function() {
-                    if (anglerfishSlider.value == 100) {
-                      anglerfishLink.style.display = "block";
-                      var baseHost = document.location.origin;
-                      anglerfishLink.href=`${baseHost}/anglerfishmode`;
-                      anglerfishLink.text = `Enter Anglerfish Mode (remove SD card to return to normal mode)`;
-                    } else {
-                      anglerfishLink.style.display = "none";
-                    }
-                  });
-                </script>   
-                <script src="https://lib.imjoy.io/imjoy-loader.js"></script>             
               </div>              
                 <div class="input-group" id="framesize-group" title="Camera resolution&#013;Higher resolutions will result in lower framerates">
                 <label for="framesize">Resolution</label>
@@ -259,20 +243,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                   <label class="slider" for="lenc"></label>
                 </div>
               </div>
-              <div class="input-group" id="stack-group">
-                <label for="stack">Stack Enable</label>
-                <div class="switch">
-                  <input id="stack" type="checkbox" class="default-action" checked="checked">
-                  <label class="slider" for="stack"></label>
-                </div>
-              </div>              
-              <div class="input-group" id="timelapse-group">
-                <label for="isTimelapse">Timelapse Enable</label>
-                <div class="switch">
-                  <input id="isTimelapse" type="checkbox" class="default-action" checked="checked">
-                  <label class="slider" for="isTimelapse"></label>
-                </div>
-              </div>              
               <div class="input-group" id="hmirror-group">
                 <label for="hmirror">H-Mirror Stream</label>
                 <div class="switch">
@@ -329,22 +299,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                 <button id="save_prefs" title="Save Preferences on camera module">Save</button>
                 <button id="clear_prefs" title="Erase saved Preferences on camera module">Erase</button>
               </div>
-              <div class="input-group" id="wifipref-group">
-                <label for="WifiPrefs" style="line-height: 2em;">Wifi Settings</label>
-                <button id="mWifiConfirm" title="Confirm the wifi settings">Confirm Wifi</button>
-              </div>
-              <div class="input-group" id="set-ssid-group" title="Change the Wifi SSID">
-                <label for="set-ssid">WiFi SSID</label>
-                <div class="text">
-                   <input id="ssid" type="text" class="default-action">
-                 </div>
-              </div> 
-             <div class="input-group" id="set-password-group" title="Change the Wifi Passowrd">
-              <label for="set-password">WiFi Password</label>
-              <div class="password">
-                 <input id="password" type="text" class="default-action">
-               </div>  
-              </div> 
               <div class="input-group" id="focus-group">
                 <label for="FocusSettings" style="line-height: 2em;">Move Focus</label>
                 <button id="mFocusUp" title="Focus++">Focus++</button>
@@ -411,12 +365,10 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const settings = document.getElementById('sidebar')
     const waitSettings = document.getElementById('wait-settings')
     const lampGroup = document.getElementById('lamp-group')
-    const autolampGroup = document.getElementById('autolamp-group')
     const pwmGroup = document.getElementById('pwm-group')
     const neopixelGroup = document.getElementById('neopixel-group')
     const timelapseintervalGroup = document.getElementById('timelapseInterval-group')
     const autofocusintervalGroup = document.getElementById('autofocusInterval-group')
-    const anglerfishGroup = document.getElementById('anglerfish-group')
     const streamGroup = document.getElementById('stream-group')
     const camName = document.getElementById('cam_name')
     const sdCard = document.getElementById('sd_card')
@@ -427,7 +379,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const viewContainer = document.getElementById('stream-container')
     const stillButton = document.getElementById('get-still')
     const galleryButton = document.getElementById('open-gallery')
-    const holoButton = document.getElementById('open-holo')
     const githubButton = document.getElementById('send-github')
     const imjoyButton = document.getElementById('send-imjoy')
     const streamButton = document.getElementById('toggle-stream')
@@ -498,15 +449,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
           }
         } else if(el.id === "awb_gain"){
           value ? show(wb) : hide(wb)
-        } else if(el.id === "lamp"){
-          if (value == -1) {
-            hide(lampGroup)
-            hide(autolampGroup)
-          } else {
-            show(lampGroup)
-            show(autolampGroup)
-          }
-          } else if(el.id === "pwm"){
+        }  else if(el.id === "pwm"){
           if (value == -1) {
             hide(pwmGroup)
           } else {
@@ -534,13 +477,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
             show(autofocusintervalGroup)
           }
         }
-          else if(el.id === "anglerfishSlider"){
-            if (value == -1){
-              hide(anglerfishGroup)
-            } else {
-              show(anglerfishGroup)
-            }
-          }
          else if(el.id === "cam_name"){
           camName.innerHTML = value;
           window.document.title = value;
@@ -654,9 +590,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     stillButton.setAttribute("title", `Capture a still image :: ${baseHost}/capture`);
     githubButton.setAttribute("title", `Upload a still image to Github :: ${baseHost}/uploadgithub`);
     imjoyButton.setAttribute("title", `Upload a still image to ImJoy :: ${baseHost}/uploadimjoy`);
-    galleryButton.setAttribute("title", `View the gallery :: ${baseHost}/gallery`);
-    holoButton.setAttribute("title", `View the holo gallery :: ${baseHost}/holo`);
-    
 
     const stopStream = () => {
       window.stop();
@@ -716,15 +649,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       link.click();
     }
 
-    galleryButton.onclick = () => {
-      stopStream();
-      window.open(`${baseHost}/gallery`, "_blank");
-    }
-
-    holoButton.onclick = () => {
-      stopStream();
-      window.open(`${baseHost}/holo`, "_blank");
-    }
     
     githubButton.onclick = () => {
       stopStream();

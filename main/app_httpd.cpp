@@ -62,6 +62,11 @@ extern void loadSpiffsToPrefs(fs::FS &fs);
 extern void moveFocusRelative(int val, bool handleEnable);
 extern void setNeopixel(int);
 
+void saveCapturedImageGithub();
+
+// Select between full and simple index as the default.
+char default_index[] = "full";
+
 camera_fb_t *convolution(camera_fb_t *input);
 bool saveImage(String filename, int pwmVal = -1);
 int autoFocus(int minPos, int maxPos, int focusStep);
@@ -80,13 +85,10 @@ extern int streamPort;
 extern char httpURL[];
 extern char streamURL[];
 extern char default_index[];
-extern int8_t streamCount;
-extern unsigned long streamsServed;
 extern unsigned long imagesServed;
 extern int myRotation;
 extern int minFrameTime;
 extern int lampVal;
-extern bool autoLamp;
 extern int pwmVal;
 extern bool filesystem;
 extern String critERR;
@@ -116,6 +118,11 @@ typedef struct
 static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
 static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
+
+void startCameraServer(int hPort, int sPort);
+void stopCameraServer();
+void loadSettings();
+int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25);
 
 httpd_handle_t stream_httpd = NULL;
 httpd_handle_t camera_httpd = NULL;
@@ -221,56 +228,47 @@ static esp_err_t capture_handler(httpd_req_t *req)
     esp_err_t res = ESP_OK;
 
     Serial.println("Capture Requested");
-    if (autoLamp && (lampVal != -1))
+    setLamp(lampVal);
+    delay(75); // coupled with the status led flash this gives ~150ms for lamp to settle.
+
+    int64_t fr_start = esp_timer_get_time();
+
+    fb = esp_camera_fb_get();
+    if (!fb)
     {
-        setLamp(lampVal);
-        delay(75); // coupled with the status led flash this gives ~150ms for lamp to settle.
-
-        int64_t fr_start = esp_timer_get_time();
-
-        fb = esp_camera_fb_get();
-        if (!fb)
-        {
-            Serial.println("CAPTURE: failed to acquire frame");
-            httpd_resp_send_500(req);
-            if (autoLamp && (lampVal != -1))
-                setLamp(0);
-            return ESP_FAIL;
-        }
-        // camera_fb_t* fb = convolution(fb_);
-
-        httpd_resp_set_type(req, "image/jpeg");
-        httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
-        httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
-        size_t fb_len = 0;
-        if (fb->format == PIXFORMAT_JPEG)
-        {
-            fb_len = fb->len;
-            res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
-        }
-        else
-        {
-            res = ESP_FAIL;
-            Serial.println("Capture Error: Non-JPEG image returned by camera module");
-        }
-        esp_camera_fb_return(fb);
-        // esp_camera_fb_return(fb_);
-        fb = NULL;
-
-        // save to SD card if existent
-        String filename = "/image" + String(imagesServed);
-        saveImage(filename);
-
-        int64_t fr_end = esp_timer_get_time();
-        Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
-        imagesServed++;
-        setFrameIndex(SPIFFS, imagesServed);
-        if (autoLamp && (lampVal != -1))
-        {
-            setLamp(0);
-        }
+        Serial.println("CAPTURE: failed to acquire frame");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
     }
+    // camera_fb_t* fb = convolution(fb_);
+
+    httpd_resp_set_type(req, "image/jpeg");
+    httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+
+    size_t fb_len = 0;
+    if (fb->format == PIXFORMAT_JPEG)
+    {
+        fb_len = fb->len;
+        res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+    }
+    else
+    {
+        res = ESP_FAIL;
+        Serial.println("Capture Error: Non-JPEG image returned by camera module");
+    }
+    esp_camera_fb_return(fb);
+    // esp_camera_fb_return(fb_);
+    fb = NULL;
+
+    // save to SD card if existent
+    String filename = "/image" + String(imagesServed);
+    saveImage(filename);
+
+    int64_t fr_end = esp_timer_get_time();
+    Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
+    imagesServed++;
+    setFrameIndex(SPIFFS, imagesServed);
     return res;
 }
 
@@ -287,9 +285,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
     streamKill = false;
 
     Serial.println("Stream requested");
-    if (autoLamp && (lampVal != -1))
-        setLamp(lampVal);
-    streamCount = 1; // at present we only have one stream handler, so values are 0 or 1..
     static int64_t last_frame = 0;
     if (!last_frame)
     {
@@ -299,9 +294,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
     res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
     if (res != ESP_OK)
     {
-        streamCount = 0;
-        if (autoLamp && (lampVal != -1))
-            setLamp(0);
         Serial.println("STREAM: failed to set HTTP response type");
         return res;
     }
@@ -405,10 +397,6 @@ static esp_err_t stream_handler(httpd_req_t *req)
         }
     }
 
-    streamsServed++;
-    streamCount = 0;
-    if (autoLamp && (lampVal != -1))
-        setLamp(0);
     Serial.println("Stream ended");
     last_frame = 0;
     IS_STREAMING = false;
@@ -535,18 +523,6 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         isTimelapseGeneral = val;
         setIsTimelapseGeneral(SPIFFS, val);
     }
-    else if (!strcmp(variable, "ssid"))
-    {
-        Serial.print("Changing SSID to: ");
-        Serial.println(value);
-        setWifiSSID(SPIFFS, value);
-    }
-    else if (!strcmp(variable, "password"))
-    {
-        Serial.print("Changing password to: ");
-        Serial.println(value);
-        setWifiPW(SPIFFS, value);
-    }
     else if (!strcmp(variable, "lenc"))
         res = s->set_lenc(s, val);
     else if (!strcmp(variable, "special_effect"))
@@ -559,35 +535,9 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         myRotation = val;
     else if (!strcmp(variable, "min_frame_time"))
         minFrameTime = val;
-    else if (!strcmp(variable, "autolamp") && (lampVal != -1))
-    {
-        autoLamp = val;
-        if (autoLamp)
-        {
-            if (streamCount > 0)
-                setLamp(lampVal);
-            else
-                setLamp(0);
-        }
-        else
-        {
-            setLamp(lampVal);
-        }
-    }
     else if (!strcmp(variable, "lamp") && (lampVal != -1))
     {
         lampVal = constrain(val, 0, 100);
-        if (autoLamp)
-        {
-            if (streamCount > 0)
-                setLamp(lampVal);
-            else
-                setLamp(0);
-        }
-        else
-        {
-            setLamp(lampVal);
-        }
     }
     // control focus motor
     else if (!strcmp(variable, "mFocusUp"))
@@ -743,7 +693,6 @@ static esp_err_t status_handler(httpd_req_t *req)
     {
         sensor_t *s = esp_camera_sensor_get();
         p += sprintf(p, "\"lamp\":%d,", lampVal);
-        p += sprintf(p, "\"autolamp\":%d,", autoLamp);
         p += sprintf(p, "\"min_frame_time\":%d,", minFrameTime);
         p += sprintf(p, "\"framesize\":%u,", s->status.framesize);
         p += sprintf(p, "\"quality\":%u,", s->status.quality);
@@ -887,7 +836,6 @@ static esp_err_t dump_handler(httpd_req_t *req)
     int upSec = sec % 60;
 
     d += sprintf(d, "Up: %" PRId64 ":%02i:%02i:%02i (d:h:m:s)<br>\n", upDays, upHours, upMin, upSec);
-    d += sprintf(d, "Active streams: %i, Previous streams: %lu, Images captured: %lu<br>\n", streamCount, streamsServed, imagesServed);
     d += sprintf(d, "CPU Freq: %i MHz, Xclk Freq: %i MHz<br>\n", ESP.getCpuFreqMHz(), xclk);
     d += sprintf(d, "<span title=\"NOTE: Internal temperature sensor readings can be innacurate on the ESP32-c1 chipset, and may vary significantly between devices!\">");
     d += sprintf(d, "Heap: %i, free: %i, min free: %i, max block: %i<br>\n", ESP.getHeapSize(), ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
@@ -988,115 +936,6 @@ void saveCapturedImageiNaturalist()
     // choose smaller pixel number
     sensor_t *s = esp_camera_sensor_get();
     s->set_framesize(s, FRAMESIZE_VGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA]
-}
-void saveCapturedImageGithub()
-{
-    /* This works in MAC
-  curl -L \
-    -X PUT \
-    -H "Accept: application/vnd.github+json" \
-    -H "Authorization: Bearer TOKEN"\
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    https://api.github.com/repos/matchboxscope/matchboxscope-gallery/contents/test2.jpg \
-    -d '{"message":"my commit message","committer":{"name":"Monalisa Octocat","email":"octocat@github.com"},"content":"BASE64=="}'
-
-
-    */
-
-    Serial.println("Performing Saving Capture for Github in Background");
-    // choose smaller pixel number
-    sensor_t *s = esp_camera_sensor_get();
-    s->set_framesize(s, FRAMESIZE_VGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA|QXGA(ov3660)]);
-    if (autoLamp && (lampVal != -1))
-    {
-        setLamp(lampVal);
-        delay(75); // coupled with the status led flash this gives ~150ms for lamp to settle.
-    }
-
-    // capture image
-    camera_fb_t *fb = NULL;
-    for (int i = 0; i < 5; i++)
-    {
-        // warmup and wb settling
-        fb = esp_camera_fb_get();
-        esp_camera_fb_return(fb);
-    }
-
-    fb = esp_camera_fb_get();
-    if (!fb)
-    {
-        Serial.println("Camera capture failed");
-        return;
-    }
-
-    if (autoLamp && (lampVal != -1))
-    {
-        setLamp(0);
-    }
-
-    // Encode the image in base64 format
-    Serial.println("Encode image image");
-    String base64data = base64::encode(fb->buf, fb->len); // convert buffer to base64
-    esp_camera_fb_return(fb);
-
-    // formulate the JSON payload
-    const char *token = GITHUB_TOKEN;
-    const char *owner = "matchboxscope";
-    const char *repo = "matchboxscope-gallery";
-    const char *message = "Uploading image from ESP32";
-    const char *committer_name = "matchboxscope-bot";
-    const char *committer_email = "matchboxscope@gmail.com";
-    const char *text_mime_type = "text/plain"; // Set the correct MIME type for your text
-    // const char *text_base64_data = "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";
-
-    // Construct the JSON payload
-    DynamicJsonDocument doc(16384);
-    JsonObject payload = doc.to<JsonObject>();
-    payload["message"] = message;
-    JsonObject committer = payload.createNestedObject("committer");
-    committer["name"] = committer_name;
-    committer["email"] = committer_email;
-    payload["content"] = base64data.c_str(); // text_base64_data;
-    payload["content_type"] = text_mime_type;
-
-    // Serialize the JSON payload to a string
-    String payload_string;
-    serializeJson(payload, payload_string);
-
-    // Construct a random URL
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-
-    // Generate a random number
-    int randNum = random(10000);
-
-    // Create the filename string
-    char filename[32];
-    sprintf(filename, "%02X%02X%02X%02X%02X%02X_%d.jpg", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5], randNum);
-    ;
-    String url = "https://api.github.com/repos/matchboxscope/matchboxscope-gallery/contents/" + String(filename);
-    log_d("URL: %s", url);
-
-    // Send the request
-    HTTPClient http;
-    http.begin(url);
-    http.addHeader("Accept", "application/vnd.github+json");
-    http.addHeader("Authorization", "Bearer " + String(token));
-    http.addHeader("X-GitHub-Api-Version", "2022-11-28");
-    http.addHeader("Content-Type", "application/json");
-    int http_code = http.sendRequest("PUT", payload_string);
-
-    // Print the response
-    /*
-    Serial.println(payload);
-    Serial.println(payload_string);
-    Serial.println(http.getString());
-    */
-    payload.clear();
-    http.end();
-
-    // reset old settings
-    // s->set_framesize(s, FRAMESIZE_SVGA);
 }
 
 static esp_err_t uploadgithub_handler(httpd_req_t *req)
@@ -1470,7 +1309,7 @@ void startCameraServer(int hPort, int sPort)
     }
 }
 
-int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
+int autoFocus(int minPos, int maxPos, int focusStep)
 {
     if (isAutofocusMotorized)
     {
@@ -1539,7 +1378,7 @@ int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25)
     }
     else
     {
-        // This is for voice-coil based autofocus 
+        // This is for voice-coil based autofocus
         int maxFocusValue = 0;
         int bestPosition = 0;
         int range = maxPos - minPos;
@@ -1606,7 +1445,7 @@ bool saveImage(String filename, int pwmVal)
     {
         delay(10);
     }
-
+ 
     // set PWM value e.g.
     if (pwmVal > -1)
     {
@@ -1621,20 +1460,12 @@ bool saveImage(String filename, int pwmVal)
         camera_fb_t *fb = NULL;
 
         Serial.println("Capture Requested for SD card save");
-        if (autoLamp && (lampVal != -1))
-        {
-            setLamp(lampVal);
-            delay(75); // coupled with the status led flash this gives ~150ms for lamp to settle.
-        }
-
         int64_t fr_start = esp_timer_get_time();
 
         fb = esp_camera_fb_get();
         if (!fb)
         {
             Serial.println("CAPTURE: failed to acquire frame");
-            if (autoLamp && (lampVal != -1))
-                setLamp(0);
             res = false;
             esp_camera_fb_return(fb);
             fb = NULL;
@@ -1654,11 +1485,6 @@ bool saveImage(String filename, int pwmVal)
         }
 
         int64_t fr_end = esp_timer_get_time();
-
-        if (autoLamp && (lampVal != -1))
-        {
-            setLamp(0);
-        }
 
         // Save image to disk
         // https://github.com/limengdu/SeeedStudio-XIAO-ESP32S3-Sense-camera/blob/56580ab8e438d82a91fcbe47a8412cf9d29a6b76/take_photos/take_photos.ino#L33
@@ -1704,10 +1530,6 @@ bool saveImage(String filename, int pwmVal)
         esp_camera_fb_return(fb);
         fb = NULL;
 
-        if (autoLamp)
-        {
-            setLamp(0);
-        }
     }
     else
     {

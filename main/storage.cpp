@@ -6,11 +6,8 @@
 // These are defined in the main .ino file
 extern int myRotation;   // Rotation
 extern int lampVal;      // The current Lamp value
-extern bool autoLamp;    // Automatic lamp mode
 extern int xclk;         // Camera module clock speed
 extern int minFrameTime; // Limits framerate
-extern char *mssid;
-extern char *mpassword;
 extern uint32_t frameIndex;
 extern bool isStack;
 extern int timelapseInterval;
@@ -131,7 +128,6 @@ void writePrefsToSSpiffs(fs::FS &fs)
   // save it to an arduinojson document
   DynamicJsonDocument jsonDoc = readPrefs(SPIFFS);
   jsonDoc["lamp"] = lampVal;
-  jsonDoc["autolamp"] = autoLamp;
   jsonDoc["framesize"] = s->status.framesize;
   jsonDoc["quality"] = s->status.quality;
   jsonDoc["xclk"] = xclk;
@@ -159,8 +155,6 @@ void writePrefsToSSpiffs(fs::FS &fs)
   jsonDoc["dcw"] = s->status.dcw;
   jsonDoc["colorbar"] = s->status.colorbar;
   jsonDoc["rotate"] = String(myRotation);
-  jsonDoc["mssid"] = mssid;
-  jsonDoc["mpassword"] = mpassword;
   jsonDoc["frameIndex"] = frameIndex ;
   jsonDoc["isStack"] = isStack ;
   jsonDoc["timelapseInterval"] = timelapseInterval;
@@ -294,7 +288,6 @@ void loadSpiffsToPrefs(fs::FS &fs)
         lampVal = lampValPref;
     }
     minFrameTime = doc["min_frame_time"].as<int>();
-    autoLamp = doc["autolamp"].as<bool>();
     int xclkPref = doc["xclk"].as<int>();
     if (xclkPref >= 2)
       xclk = xclkPref;
@@ -361,44 +354,6 @@ void setIsTimelapseGeneral(fs::FS &fs, bool isTimelapseGeneral)
 
 
 
-static const char wifissidKey[] = "mssid";
-String getWifiSSID(fs::FS &fs)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  if (mConfig.containsKey(wifissidKey)){
-    log_d("getWifiSSID: %s", mConfig[wifissidKey].as<String>().c_str());
-    return mConfig[wifissidKey];
-    }
-  else{
-    log_d("getWifiSSID: %s", mssid);
-    return mssid;
-  }
-    
-}
-
-void setWifiSSID(fs::FS &fs, String value)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  mConfig[wifissidKey] = value;
-  writeJsonToSSpiffs(mConfig, SPIFFS);
-}
-
-static const char wifipwKey[] = "mpassword";
-String getWifiPW(fs::FS &fs)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  if (mConfig.containsKey(wifipwKey))
-    return mConfig[wifipwKey];
-  else
-    return mpassword;
-}
-
-void setWifiPW(fs::FS &fs, String value)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  mConfig[wifipwKey] = value;
-  writeJsonToSSpiffs(mConfig, SPIFFS);
-}
 
 
 static const char frameIndexKey[] = "frameIndex";
