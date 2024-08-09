@@ -1,0 +1,73 @@
+name: Compile openUC2xSeeed Platformio
+
+# Controls when the action will run. Triggers the workflow on push or pull request events
+# but only for the master branch
+on:
+  workflow_dispatch:
+
+# A workflow run is made up of one or more jobs that can run sequentially or in parallel
+jobs:
+  build:
+    # The type of runner that the job will run on
+    runs-on: ubuntu-latest
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+    - name: Checkout openUC2xSEEED branch
+      uses: actions/checkout@v2
+      with:
+        ref: openUC2xSEEED
+        submodules: recursive
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.9'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install platformio
+        pip install esptool
+        dir
+    
+    # It is important to first install the libraries before compiling, since otherwise compilation might fail to find the just-installed libraries
+    - name: Install platformIO libraries
+      run: pio lib install
+
+    # Inject GitHub token
+    - name: Find and Replace (Github Token)
+      uses: jacobtomlinson/gha-find-replace@v2
+      with:
+        find: '#include "githubtoken.h"'
+        replace: 'const char* GITHUB_TOKEN = "${{ secrets.API_TOKEN_GITHUB }}";'
+        regex: false
+
+    # Run for ESP32CAM
+    - name: Run PlatformIO for ESP32CAMS3
+      run: pio run --environment seeed_xiao_esp32s3
+
+    - name: Merge into one binary (ESP32CAM)
+      run: |
+        dir .pio/build/seeed_xiao_esp32s3/
+        mv .pio/build/seeed_xiao_esp32s3/*.bin build/
+        cd build
+               python -m esptool --chip ESP32-S3 merge_bin -o xiao-sense-manifest.bin --flash_mode qio --flash_size 8MB 0x0000 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin
+
+    - uses: actions/upload-artifact@v3
+      with:
+        name: merged-firmware
+        path: build/xiao-sense-manifest.bin
+
+    - name: Push Xiao binary to youseetoo Webtool
+      uses: dmnemec/copy_file_to_another_repo_action@main
+      env:
+        API_TOKEN_GITHUB: ${{ secrets.UPLOAD_GITHUB_TOKEN }}
+      with:
+        source_file: 'build/xiao-sense-manifest.bin'
+        destination_repo: 'matchboxscope/matchboxscope.github.io'
+        destination_folder: 'static/firmware/static/firmware_build'
+        user_email: 'bene.d@gmx.de'
+        user_name: 'beniroquai'
+        commit_message: 'A new firmware binary has been released (xiao-sense-manifest.bin) => https://github.com/youseetoo/uc2-esp32'
+
