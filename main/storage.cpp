@@ -9,10 +9,9 @@ extern int lampVal;      // The current Lamp value
 extern int xclk;         // Camera module clock speed
 extern int minFrameTime; // Limits framerate
 extern uint32_t frameIndex;
-extern bool isStack;
 extern int timelapseInterval;
 extern int autofocusInterval;
-extern bool isTimelapseGeneral;
+extern bool isTimelapse;
 
 bool fileOpen = false;  // file-writing switch
 
@@ -156,10 +155,9 @@ void writePrefsToSSpiffs(fs::FS &fs)
   jsonDoc["colorbar"] = s->status.colorbar;
   jsonDoc["rotate"] = String(myRotation);
   jsonDoc["frameIndex"] = frameIndex ;
-  jsonDoc["isStack"] = isStack ;
   jsonDoc["timelapseInterval"] = timelapseInterval;
   jsonDoc["autofocusInterval"] = autofocusInterval;
-  jsonDoc["isTimelapseGeneral"] = isTimelapseGeneral;
+  jsonDoc["isTimelapse"] = isTimelapse;
   
   // FIXME: ADD ALL THE values from the json document to variabels!
   writeJsonToSSpiffs(jsonDoc, SPIFFS);
@@ -293,8 +291,6 @@ void loadSpiffsToPrefs(fs::FS &fs)
       xclk = xclkPref;
     myRotation = doc["rotate"].as<int>();
 
-    isStack = doc["isStack"];
-
     // Process camera settings
     s->set_framesize(s, (framesize_t)doc["framesize"].as<int>());
     s->set_quality(s, doc["quality"].as<int>());
@@ -333,23 +329,35 @@ void loadSpiffsToPrefs(fs::FS &fs)
 
 
 
-static const char isTimelapseGeneralKey[] = "isTimelapseGeneral";
-bool getIsTimelapseGeneral(fs::FS &fs)
+static const char isTimelapseKey[] = "isTimelapse";
+bool getisTimelapse()
 {
-  //log_d("getIsTimelapseGeneral");
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  if (mConfig.containsKey("isTimelapseGeneralKey"))
-    return mConfig["isTimelapseGeneralKey"];
-  else
-    return false;
+  // Open preferences with a namespace/key pair
+  Preferences preferences;
+  preferences.begin(groupName, false);
+
+  // Load the boolean value
+  int value = preferences.getInt(isTimelapseKey, 0);
+  // Close the preferences
+  preferences.end();
+  log_i("getisTimelapse: %i", value);
+  return value;
+
 }
 
-void setIsTimelapseGeneral(fs::FS &fs, bool isTimelapseGeneral)
+void setisTimelapse(bool isTimelapse)
 {
-  log_d("setIsTimelapseGeneral");
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  mConfig["isTimelapseGeneralKey"] = isTimelapseGeneral;
-  writeJsonToSSpiffs(mConfig, SPIFFS);
+   // Open preferences with a namespace/key pair
+  // it seems this survives a corruption of the SPIFFS!
+  Preferences preferences;
+  preferences.begin(groupName, false);
+
+  // Save the boolean value
+  preferences.putInt(isTimelapseKey, isTimelapse);
+
+  // Close the preferences
+  preferences.end();
+
 }
 
 
@@ -357,22 +365,20 @@ void setIsTimelapseGeneral(fs::FS &fs, bool isTimelapseGeneral)
 
 
 static const char frameIndexKey[] = "frameIndex";
-uint32_t getFrameIndex(fs::FS &fs)
+uint32_t getFrameIndex()
 {
   // Open preferences with a namespace/key pair
   Preferences preferences;
   preferences.begin(groupName, false);
 
   // Load the boolean value
-  int value = preferences.getInt(frameIndexKey, 0);
-
+  int value = preferences.getInt(frameIndexKey, 1);
   // Close the preferences
   preferences.end();
-
   return value;
 }
 
-void setFrameIndex(fs::FS &fs, int value)
+void setFrameIndex(int value)
 {
   // Open preferences with a namespace/key pair
   // it seems this survives a corruption of the SPIFFS!
@@ -423,24 +429,6 @@ void setSerialFrameEnabled(int value)
 }
 
 
-static const char isStackKey[] = "isStack";
-bool getAcquireStack(fs::FS &fs)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  bool value = 0;
-  if (mConfig.containsKey(isStackKey))
-    value = mConfig[isStackKey];
-  log_d("Reading get AcquireStack to%i", value);    
-  return value;
-}
-
-void setAcquireStack(fs::FS &fs, bool value)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  log_d("Writing set AcquireStack to%i", value);
-  mConfig[isStackKey] = value;
-  writeJsonToSSpiffs(mConfig, SPIFFS);
-}
 
 static const char timelapseIntervalKey[] = "timelapseInterval";
 uint32_t getTimelapseInterval(fs::FS &fs)

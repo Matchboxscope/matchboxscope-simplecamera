@@ -63,25 +63,11 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
                   <label id="valTimelapse"></label>
                 </div>
               </div>     
-              <div class="input-group" id="stack-group">
-                <label for="stack">Stack Enable</label>
-                <div class="switch">
-                  <input id="stack" type="checkbox" class="default-action" checked="checked">
-                  <label class="slider" for="stack"></label>
-                </div>
-              </div>              
               <div class="input-group" id="timelapse-group">
                 <label for="isTimelapse">Timelapse Enable</label>
                 <div class="switch">
                   <input id="isTimelapse" type="checkbox" class="default-action" checked="checked">
                   <label class="slider" for="isTimelapse"></label>
-                </div>
-              </div>              
-              <div class="input-group hidden" id="autofocusInterval-group" title="Autofocus Interval value.&#013;&#013;Warning:&#013;Choose a value when the microscope should start a new round of autofocus. 0 means no interval.">
-                <label for="autofocusInterval">Autofocus Interval </label>
-                <input type="range" id="autofocusInterval" min="0" max="50" value="0" class="default-action" oninput="document.getElementById('valAutofocusInterval').innerHTML = this.value" />
-                <div>
-                  <label id="valAutofocusInterval"></label>
                 </div>
               </div>              
                 <div class="input-group" id="framesize-group" title="Camera resolution&#013;Higher resolutions will result in lower framerates">
@@ -368,7 +354,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const pwmGroup = document.getElementById('pwm-group')
     const neopixelGroup = document.getElementById('neopixel-group')
     const timelapseintervalGroup = document.getElementById('timelapseInterval-group')
-    const autofocusintervalGroup = document.getElementById('autofocusInterval-group')
     const streamGroup = document.getElementById('stream-group')
     const camName = document.getElementById('cam_name')
     const sdCard = document.getElementById('sd_card')
@@ -468,13 +453,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
             hide(timelapseintervalGroup)
           } else {
             show(timelapseintervalGroup)
-          }
-        }
-        else if(el.id === "autofocusInterval"){
-          if (value == -1) {
-            hide(autofocusintervalGroup)
-          } else {
-            show(autofocusintervalGroup)
           }
         }
          else if(el.id === "cam_name"){
@@ -751,12 +729,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       const timelapseInterval = document.getElementById('timelapseInterval');
       valTimelapseLabel = document.getElementById('valTimelapse')
       valTimelapseLabel.innerHTML = timelapseInterval.value;
-    }
-    
-    autofocusInterval.onchange = () => {
-      const valAutofocusInterval = document.getElementById('autofocusInterval');
-      valAutofocusInterfalLabel = document.getElementById('valAutofocusInterval')
-      valAutofocusInterfalLabel.innerHTML = autofocusInterval.value;
     }
     
 

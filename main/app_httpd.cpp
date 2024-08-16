@@ -48,10 +48,10 @@
 #include "HTTPClientESP32.h"
 
 // only inlcude if file available
-#define HAS_GITHUB
+//#define HAS_GITHUB
 #ifdef HAS_GITHUB
 #include "githubtoken.h"
-#elif
+#else
 const char *GITHUB_TOKEN = "";
 #endif
 
@@ -96,8 +96,7 @@ extern String critERR;
 extern unsigned long xclk;
 extern int sensorPID;
 extern int sdInitialized;
-extern bool isTimelapseGeneral;
-extern bool isStack;
+extern bool isTimelapse;
 extern int lampChannel;
 const int pwmfreq = 50000; // 50K pwm frequency
 extern int pwmresolution;
@@ -268,7 +267,7 @@ static esp_err_t capture_handler(httpd_req_t *req)
     int64_t fr_end = esp_timer_get_time();
     Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
     imagesServed++;
-    setFrameIndex(SPIFFS, imagesServed);
+    setFrameIndex(imagesServed);
     return res;
 }
 
@@ -509,19 +508,12 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         res = s->set_wpc(s, val);
     else if (!strcmp(variable, "raw_gma"))
         res = s->set_raw_gma(s, val);
-    else if (!strcmp(variable, "stack"))
-    {
-        Serial.print("Changing stack is enable to: ");
-        Serial.println(val);
-        setAcquireStack(SPIFFS, val);
-        isStack = val;
-    }
     else if (!strcmp(variable, "isTimelapse"))
     {
         Serial.print("Changing timelapse is enable to: ");
         Serial.println(val);
-        isTimelapseGeneral = val;
-        setIsTimelapseGeneral(SPIFFS, val);
+        isTimelapse = val;
+        setisTimelapse(val);
     }
     else if (!strcmp(variable, "lenc"))
         res = s->set_lenc(s, val);
@@ -726,9 +718,8 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"stream_url\":\"%s\",", streamURL);
         p += sprintf(p, "\"sd_card\":%d,", sdInitialized);
         // p += sprintf(p, "\"compiled_date\":%llu,", compileDate);
-        p += sprintf(p, "\"isStack\":\"%u\",", isStack);
         p += sprintf(p, "\"images_served\":\"%u\",", imagesServed);
-        p += sprintf(p, "\"isTimelapseGeneral\":\"%u\",", isTimelapseGeneral);
+        p += sprintf(p, "\"isTimelapse\":\"%u\",", isTimelapse);
         p += sprintf(p, "\"focusSlider\":\"%d\",", 1);
         p += sprintf(p, "\"timelapseInterval\":\"%d\",", timelapseInterval);
         p += sprintf(p, "\"autofocusInterval\":\"%d\"", autofocusInterval);

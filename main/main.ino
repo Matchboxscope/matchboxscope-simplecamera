@@ -49,8 +49,6 @@ camera_config_t config;
 int sensorPID;
 unsigned long xclk = 20;
 int myRotation = 0;
-bool isStack = false;
-bool isTimelapseGeneral = false;
 int minFrameTime = 0;
 int timelapseInterval = -1;
 int autofocusInterval = 0;
@@ -115,7 +113,6 @@ void calcURLs();
 bool StartCamera();
 void saveCapturedImageGithubTask(void *pvParameters);
 int get_mean_intensity(camera_fb_t *fb);
-void acquireFocusStack(String filename, int stepSize = 10, int stepMin = 0, int stepMax = 100);
 void grabRawFrameBase64();
 void moveFocusRelative(int steps, bool handleEnable = true);
 void scanConnectedDevices();
@@ -126,6 +123,8 @@ void loadSettings();
 int imagesServed = 0;
 extern bool saveImage(String filename, int pwmVal);
 extern char *GITHUB_TOKEN;
+bool isTimelapse = false;
+
 void initSDCard();
 void startCameraServer(int hPort, int sPort);
 int autoFocus(int minPos, int maxPos, int focusStep);
@@ -155,7 +154,7 @@ void setup() {
     // Initialize SD card
     initSDCard();
 
-    // Load settings
+    // Load settings (e.g. if timelapse was enabled)
     loadSettings();
 
     // Initialize WiFi
@@ -183,35 +182,25 @@ void setup() {
 
 void loop() {
     // Timelapse Imaging
-    if (isTimelapseGeneral && timelapseInterval > 0 && ((millis() - t_old) > (1000 * timelapseInterval))) {
+    if (isTimelapse && timelapseInterval > 0 && ((millis() - t_old) > (1000 * timelapseInterval))) {
+        log_i("Taking an Image");
         writePrefsToSSpiffs(SPIFFS);
         t_old = millis();
-        frameIndex = getFrameIndex(SPIFFS) + 1;
+        frameIndex = getFrameIndex() ;
 
-        // Perform autofocus every n-times
-        if (frameIndex % autofocusInterval == 0 && autofocusInterval > 0) {
-            log_d("Performing autofocus");
-            autoFocus(autofocus_min, autofocus_max, autofocus_stepsize);
-        }
 
         // Save image
         String filename = "/timelapse_image_scope_" + String(uniqueID) + "_" + String(millis()) + "_" + String(imagesServed);
-        if (getAcquireStack(SPIFFS)) {
-            log_d("Acquiring stack");
-            imagesServed++;
-            acquireFocusStack(filename, 10);
-        } else {
             imagesServed++;
             log_d("Store single image");
             int pwmVal = getPWMVal(SPIFFS);
             saveImage(filename, pwmVal);
-        }
 
         // Set default lamp value for streaming
         setLamp(lampVal);
 
         // Increment frame number
-        setFrameIndex(SPIFFS, frameIndex);
+        setFrameIndex(frameIndex+1);
     }
 }
 
@@ -492,10 +481,10 @@ void initSDCard() {
 }
 
 void loadSettings() {
-    imagesServed = getFrameIndex(SPIFFS);
+    imagesServed = getFrameIndex();
     timelapseInterval = getTimelapseInterval(SPIFFS);
     autofocusInterval = getAutofocusInterval(SPIFFS);
-    isTimelapseGeneral = getIsTimelapseGeneral(SPIFFS);
+    isTimelapse = getisTimelapse();
     ledcSetup(lampChannel, pwmfreq, pwmresolution);
     ledcAttachPin(LAMP_PIN, lampChannel);
     log_d("LED pin: %d", LAMP_PIN);
@@ -521,11 +510,6 @@ void loadSettings() {
     }
 }
 
-void acquireFocusStack(String filename, int stepSize, int stepMin, int stepMax) {
-    for (int iFocus = stepMin; iFocus < stepMax; iFocus += stepSize) {
-        saveImage(filename + String(imagesServed) + "_z" + String(iFocus), iFocus);
-    }
-}
 
 void grabRawFrameBase64() {
     camera_fb_t *fb = esp_camera_fb_get();
