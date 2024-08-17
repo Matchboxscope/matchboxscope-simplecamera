@@ -47,13 +47,6 @@
 #include <ArduinoWebsockets.h>
 #include "HTTPClientESP32.h"
 
-// only inlcude if file available
-//#define HAS_GITHUB
-#ifdef HAS_GITHUB
-#include "githubtoken.h"
-#else
-const char *GITHUB_TOKEN = "";
-#endif
 
 // Functions from the main .ino
 extern void setLamp(int newVal);
@@ -61,8 +54,6 @@ extern void setPWM(int newVal);
 extern void loadSpiffsToPrefs(fs::FS &fs);
 extern void moveFocusRelative(int val, bool handleEnable);
 extern void setNeopixel(int);
-
-void saveCapturedImageGithub();
 
 // Select between full and simple index as the default.
 char default_index[] = "full";
@@ -105,7 +96,6 @@ bool IS_STREAM_PAUSE = false;
 
 extern int timelapseInterval;
 extern int autofocusInterval;
-extern bool sendToGithubFlag;
 const char *indexFileName = "/index.txt";
 typedef struct
 {
@@ -929,14 +919,6 @@ void saveCapturedImageiNaturalist()
     s->set_framesize(s, FRAMESIZE_VGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA]
 }
 
-static esp_err_t uploadgithub_handler(httpd_req_t *req)
-{
-    streamKill = true;
-    Serial.println("Sending upload page");
-    sendToGithubFlag = true;
-    Serial.println("Github Upload Requested");
-    return 0;
-}
 
 // HTTP handler to serve the file for download
 // e.g. http://192.168.4.1/downloadfile?filename=image661.jpg
@@ -1240,11 +1222,6 @@ void startCameraServer(int hPort, int sPort)
         .method = HTTP_GET,
         .handler = downloadfile_handler,
         .user_ctx = NULL};
-    httpd_uri_t uploadgithub_uri = {
-        .uri = "/uploadgithub",
-        .method = HTTP_GET,
-        .handler = uploadgithub_handler,
-        .user_ctx = NULL};
 
     // Request Handlers; config.max_uri_handlers (above) must be >= the number of handlers
     config.server_port = hPort;
@@ -1272,7 +1249,6 @@ void startCameraServer(int hPort, int sPort)
         httpd_register_uri_handler(camera_httpd, &logo_svg_uri);
         httpd_register_uri_handler(camera_httpd, &dump_uri);
         httpd_register_uri_handler(camera_httpd, &stop_uri);
-        httpd_register_uri_handler(camera_httpd, &uploadgithub_uri);
         httpd_register_uri_handler(camera_httpd, &mac_uri);
         httpd_register_uri_handler(camera_httpd, &files_uri);
         httpd_register_uri_handler(camera_httpd, &downloadfile_uri);

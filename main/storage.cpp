@@ -413,6 +413,10 @@ uint32_t getSerialFrameEnabled()
   return value;
 }
 
+
+
+
+
 void setSerialFrameEnabled(int value)
 {
   // Open preferences with a namespace/key pair
@@ -428,6 +432,25 @@ void setSerialFrameEnabled(int value)
 
 }
 
+void setWifiCountry(String value)
+{
+  // Open preferences with a namespace/key pair
+  Preferences preferences;
+  preferences.begin(groupName, false);
+  preferences.putString("wifiCountry", value);
+  preferences.end();
+
+}
+
+String getWifiCountry()
+{
+  Preferences preferences;
+  preferences.begin(groupName, false);
+  String value = preferences.getString("wifiCountry", "US");
+  preferences.end();
+  return value;
+
+}
 
 
 static const char timelapseIntervalKey[] = "timelapseInterval";

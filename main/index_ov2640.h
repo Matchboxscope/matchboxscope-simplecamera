@@ -28,7 +28,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
         <label for="nav-toggle-cb" id="nav-toggle" style="float:left;">&#9776;&nbsp;&nbsp;Settings&nbsp;&nbsp;&nbsp;&nbsp;</label>
         <button id="swap-viewer" style="float:left;" title="Swap to simple viewer">Simple</button>
         <button id="get-still" style="float:left;">Get Still</button>
-        <button id="send-github" style="float:left;">To GitHub</button>
         <img alt="ImJoy" src="https://ij.imjoy.io/assets/badge/open-in-imagej-js-badge.svg" style="float:left;" /></a></span>
         <button id="send-imjoy" style="float:left;">To ImJoy</button>
         <button id="toggle-stream" style="float:left;" class="hidden">Start Stream</button>

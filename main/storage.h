@@ -33,6 +33,8 @@ void setCompiledDate(fs::FS &fs);
 bool getisTimelapse();
 void setisTimelapse(bool value);
 void setCompiledDate(fs::FS &fs);
+void setWifiCountry(String value);
+String getWifiCountry();
 uint32_t getPWMVal(fs::FS &fs);
 void setPWMVal(fs::FS &fs, uint32_t value);
 
