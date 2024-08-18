@@ -1,4 +1,4 @@
-// Original Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
+// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,92 +11,77 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-#include <ArduinoJson.h>
-#include <HTTPClient.h>
-#include <WiFi.h>
-#include <WiFiClientSecure.h>
-#include <base64.h>
-#include <Arduino.h>
-#include <WiFi.h>
-#include "camera_pins.h"
+#include "esp_http_server.h"
+#include "esp_timer.h"
+#include "esp_camera.h"
+#include "img_converters.h"
+#include "fb_gfx.h"
+#include "esp32-hal-ledc.h"
+#include "sdkconfig.h"
+#include "camera_index.h"
 
-#include <esp_http_server.h>
-#include "esp_http_client.h"
-#include <esp_timer.h>
-#include <esp_camera.h>
-#include <esp_int_wdt.h>
-#include <esp_task_wdt.h>
-#include <SD_MMC.h>
-#include <SD.h>
-#include <SPIFFS.h>
-#include <FS.h>
+#if defined(ARDUINO_ARCH_ESP32) && defined(CONFIG_ARDUHAL_ESP_LOG)
+#include "esp32-hal-log.h"
+#endif
 
-#include "index_ov2640.h"
-#include "index_ov3660.h"
-#include "index_other.h"
-#include "index_holo.h"
-#include "index_gallery.h"
-#include "css.h"
-#include "favicons.h"
-#include "logo.h"
-#include "storage.h"
+// Face Detection will not work on boards without (or with disabled) PSRAM
+#ifdef BOARD_HAS_PSRAM
+#define CONFIG_ESP_FACE_DETECT_ENABLED 1
+// Face Recognition takes upward from 15 seconds per frame on chips other than ESP32S3
+// Makes no sense to have it enabled for them
+#if CONFIG_IDF_TARGET_ESP32S3
+#define CONFIG_ESP_FACE_RECOGNITION_ENABLED 1
+#else
+#define CONFIG_ESP_FACE_RECOGNITION_ENABLED 0
+#endif
+#else
+#define CONFIG_ESP_FACE_DETECT_ENABLED 0
+#define CONFIG_ESP_FACE_RECOGNITION_ENABLED 0
+#endif
 
-#include <NTPClient.h>
-#include <WiFiUdp.h>
-#include <HTTPClient.h>
-#include <ArduinoWebsockets.h>
-#include "HTTPClientESP32.h"
+#if CONFIG_ESP_FACE_DETECT_ENABLED
 
+#include <vector>
+#include "human_face_detect_msr01.hpp"
+#include "human_face_detect_mnp01.hpp"
 
-// Functions from the main .ino
-extern void setLamp(int newVal);
-extern void setPWM(int newVal);
-extern void loadSpiffsToPrefs(fs::FS &fs);
-extern void moveFocusRelative(int val, bool handleEnable);
-extern void setNeopixel(int);
+#define TWO_STAGE 1 /*<! 1: detect by two-stage which is more accurate but slower(with keypoints). */
+                    /*<! 0: detect by one-stage which is less accurate but faster(without keypoints). */
 
-// Select between full and simple index as the default.
-char default_index[] = "full";
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+#include "face_recognition_tool.hpp"
+#include "face_recognition_112_v1_s16.hpp"
+#include "face_recognition_112_v1_s8.hpp"
 
-camera_fb_t *convolution(camera_fb_t *input);
-bool saveImage(String filename, int pwmVal = -1);
-int autoFocus(int minPos, int maxPos, int focusStep);
+#define QUANT_TYPE 0 //if set to 1 => very large firmware, very slow, reboots when streaming...
 
-// External variables declared in the main .ino
-extern char myName[];
-extern char myVer[];
-extern char baseVersion[];
-extern IPAddress ip;
-extern IPAddress net;
-extern IPAddress gw;
-extern bool isAutofocusMotorized;
-extern bool is_accesspoint;
-extern int httpPort;
-extern int streamPort;
-extern char httpURL[];
-extern char streamURL[];
-extern char default_index[];
-extern unsigned long imagesServed;
-extern int myRotation;
-extern int minFrameTime;
-extern int lampVal;
-extern int pwmVal;
-extern bool filesystem;
-extern String critERR;
+#define FACE_ID_SAVE_NUMBER 7
+#endif
 
-extern unsigned long xclk;
-extern int sensorPID;
-extern int sdInitialized;
-extern bool isTimelapse;
-extern int lampChannel;
-const int pwmfreq = 50000; // 50K pwm frequency
-extern int pwmresolution;
+#define FACE_COLOR_WHITE 0x00FFFFFF
+#define FACE_COLOR_BLACK 0x00000000
+#define FACE_COLOR_RED 0x000000FF
+#define FACE_COLOR_GREEN 0x0000FF00
+#define FACE_COLOR_BLUE 0x00FF0000
+#define FACE_COLOR_YELLOW (FACE_COLOR_RED | FACE_COLOR_GREEN)
+#define FACE_COLOR_CYAN (FACE_COLOR_BLUE | FACE_COLOR_GREEN)
+#define FACE_COLOR_PURPLE (FACE_COLOR_BLUE | FACE_COLOR_RED)
+#endif
 
-bool IS_STREAM_PAUSE = false;
+// Enable LED FLASH setting
+#define CONFIG_LED_ILLUMINATOR_ENABLED 1
 
-extern int timelapseInterval;
-extern int autofocusInterval;
-const char *indexFileName = "/index.txt";
+// LED FLASH setup
+#if CONFIG_LED_ILLUMINATOR_ENABLED
+
+#define LED_LEDC_CHANNEL 2 //Using different ledc channel/timer than camera
+#define CONFIG_LED_MAX_INTENSITY 255
+
+int led_duty = 0;
+bool isStreaming = false;
+
+#endif
+
 typedef struct
 {
     httpd_req_t *req;
@@ -106,174 +91,461 @@ typedef struct
 #define PART_BOUNDARY "123456789000000000000987654321"
 static const char *_STREAM_CONTENT_TYPE = "multipart/x-mixed-replace;boundary=" PART_BOUNDARY;
 static const char *_STREAM_BOUNDARY = "\r\n--" PART_BOUNDARY "\r\n";
-static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\n\r\n";
-
-void startCameraServer(int hPort, int sPort);
-void stopCameraServer();
-void loadSettings();
-int autoFocus(int minPos = -300, int maxPos = 300, int focusStep = 25);
+static const char *_STREAM_PART = "Content-Type: image/jpeg\r\nContent-Length: %u\r\nX-Timestamp: %d.%06d\r\n\r\n";
 
 httpd_handle_t stream_httpd = NULL;
 httpd_handle_t camera_httpd = NULL;
 
-// Webserver functions
-uint16_t websocket_server_port = 80;
-using namespace websockets;
-extern WebsocketsClient client;
-bool socketConnected = false;
+#if CONFIG_ESP_FACE_DETECT_ENABLED
 
-// Flag that can be set to kill all active streams
-bool streamKill;
+static int8_t detection_enabled = 0;
 
-/*
-Websocket Stuff
-*/
-void onEventsCallback(WebsocketsEvent event, String data)
+// #if TWO_STAGE
+// static HumanFaceDetectMSR01 s1(0.1F, 0.5F, 10, 0.2F);
+// static HumanFaceDetectMNP01 s2(0.5F, 0.3F, 5);
+// #else
+// static HumanFaceDetectMSR01 s1(0.3F, 0.5F, 10, 0.2F);
+// #endif
+
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+static int8_t recognition_enabled = 0;
+static int8_t is_enrolling = 0;
+
+#if QUANT_TYPE
+    // S16 model
+    FaceRecognition112V1S16 recognizer;
+#else
+    // S8 model
+    FaceRecognition112V1S8 recognizer;
+#endif
+#endif
+
+#endif
+
+typedef struct
 {
-    if (event == WebsocketsEvent::ConnectionOpened)
+    size_t size;  //number of values used for filtering
+    size_t index; //current value index
+    size_t count; //value count
+    int sum;
+    int *values; //array to be filled with values
+} ra_filter_t;
+
+static ra_filter_t ra_filter;
+
+static ra_filter_t *ra_filter_init(ra_filter_t *filter, size_t sample_size)
+{
+    memset(filter, 0, sizeof(ra_filter_t));
+
+    filter->values = (int *)malloc(sample_size * sizeof(int));
+    if (!filter->values)
     {
-        Serial.println("Websocket Connection Opened");
-        socketConnected = true;
+        return NULL;
     }
-    else if (event == WebsocketsEvent::ConnectionClosed)
-    {
-        Serial.println("Websocket Connection Closed");
-        socketConnected = false;
-        ESP.restart();
-    }
+    memset(filter->values, 0, sample_size * sizeof(int));
+
+    filter->size = sample_size;
+    return filter;
 }
 
-void onMessageCallback(WebsocketsMessage message)
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+static int ra_filter_run(ra_filter_t *filter, int value)
 {
-    String data = message.data();
-    int index = data.indexOf("=");
-    if (index != -1)
+    if (!filter->values)
     {
-        String key = data.substring(0, index);
-        String value = data.substring(index + 1);
+        return value;
+    }
+    filter->sum -= filter->values[filter->index];
+    filter->values[filter->index] = value;
+    filter->sum += filter->values[filter->index];
+    filter->index++;
+    filter->index = filter->index % filter->size;
+    if (filter->count < filter->size)
+    {
+        filter->count++;
+    }
+    return filter->sum / filter->count;
+}
+#endif
 
-        if (key == "MOVE_FOCUS")
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+static void rgb_print(fb_data_t *fb, uint32_t color, const char *str)
+{
+    fb_gfx_print(fb, (fb->width - (strlen(str) * 14)) / 2, 10, color, str);
+}
+
+static int rgb_printf(fb_data_t *fb, uint32_t color, const char *format, ...)
+{
+    char loc_buf[64];
+    char *temp = loc_buf;
+    int len;
+    va_list arg;
+    va_list copy;
+    va_start(arg, format);
+    va_copy(copy, arg);
+    len = vsnprintf(loc_buf, sizeof(loc_buf), format, arg);
+    va_end(copy);
+    if (len >= sizeof(loc_buf))
+    {
+        temp = (char *)malloc(len + 1);
+        if (temp == NULL)
         {
-            Serial.println("Moving focus");
+            return 0;
         }
-
-        Serial.print("Key: ");
-        Serial.println(key);
-        Serial.print("Value: ");
-        Serial.println(value);
+    }
+    vsnprintf(temp, len + 1, format, arg);
+    va_end(arg);
+    rgb_print(fb, color, temp);
+    if (len > 64)
+    {
+        free(temp);
+    }
+    return len;
+}
+#endif
+static void draw_face_boxes(fb_data_t *fb, std::list<dl::detect::result_t> *results, int face_id)
+{
+    int x, y, w, h;
+    uint32_t color = FACE_COLOR_YELLOW;
+    if (face_id < 0)
+    {
+        color = FACE_COLOR_RED;
+    }
+    else if (face_id > 0)
+    {
+        color = FACE_COLOR_GREEN;
+    }
+    if(fb->bytes_per_pixel == 2){
+        //color = ((color >> 8) & 0xF800) | ((color >> 3) & 0x07E0) | (color & 0x001F);
+        color = ((color >> 16) & 0x001F) | ((color >> 3) & 0x07E0) | ((color << 8) & 0xF800);
+    }
+    int i = 0;
+    for (std::list<dl::detect::result_t>::iterator prediction = results->begin(); prediction != results->end(); prediction++, i++)
+    {
+        // rectangle box
+        x = (int)prediction->box[0];
+        y = (int)prediction->box[1];
+        w = (int)prediction->box[2] - x + 1;
+        h = (int)prediction->box[3] - y + 1;
+        if((x + w) > fb->width){
+            w = fb->width - x;
+        }
+        if((y + h) > fb->height){
+            h = fb->height - y;
+        }
+        fb_gfx_drawFastHLine(fb, x, y, w, color);
+        fb_gfx_drawFastHLine(fb, x, y + h - 1, w, color);
+        fb_gfx_drawFastVLine(fb, x, y, h, color);
+        fb_gfx_drawFastVLine(fb, x + w - 1, y, h, color);
+#if TWO_STAGE
+        // landmarks (left eye, mouth left, nose, right eye, mouth right)
+        int x0, y0, j;
+        for (j = 0; j < 10; j+=2) {
+            x0 = (int)prediction->keypoint[j];
+            y0 = (int)prediction->keypoint[j+1];
+            fb_gfx_fillRect(fb, x0, y0, 3, 3, color);
+        }
+#endif
     }
 }
 
-/*
-Server Stuff
-*/
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+static int run_face_recognition(fb_data_t *fb, std::list<dl::detect::result_t> *results)
+{
+    std::vector<int> landmarks = results->front().keypoint;
+    int id = -1;
 
-esp_err_t bitmap_handler(httpd_req_t *req)
+    Tensor<uint8_t> tensor;
+    tensor.set_element((uint8_t *)fb->data).set_shape({fb->height, fb->width, 3}).set_auto_free(false);
+
+    int enrolled_count = recognizer.get_enrolled_id_num();
+
+    if (enrolled_count < FACE_ID_SAVE_NUMBER && is_enrolling){
+        id = recognizer.enroll_id(tensor, landmarks, "", true);
+        log_i("Enrolled ID: %d", id);
+        rgb_printf(fb, FACE_COLOR_CYAN, "ID[%u]", id);
+    }
+
+    face_info_t recognize = recognizer.recognize(tensor, landmarks);
+    if(recognize.id >= 0){
+        rgb_printf(fb, FACE_COLOR_GREEN, "ID[%u]: %.2f", recognize.id, recognize.similarity);
+    } else {
+        rgb_print(fb, FACE_COLOR_RED, "Intruder Alert!");
+    }
+    return recognize.id;
+}
+#endif
+#endif
+
+#if CONFIG_LED_ILLUMINATOR_ENABLED
+void enable_led(bool en)
+{ // Turn LED On or Off
+    int duty = en ? led_duty : 0;
+    if (en && isStreaming && (led_duty > CONFIG_LED_MAX_INTENSITY))
+    {
+        duty = CONFIG_LED_MAX_INTENSITY;
+    }
+    ledcWrite(LED_LEDC_CHANNEL, duty);
+    //ledc_set_duty(CONFIG_LED_LEDC_SPEED_MODE, CONFIG_LED_LEDC_CHANNEL, duty);
+    //ledc_update_duty(CONFIG_LED_LEDC_SPEED_MODE, CONFIG_LED_LEDC_CHANNEL);
+    log_i("Set LED intensity to %d", duty);
+}
+#endif
+
+static esp_err_t bmp_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
     esp_err_t res = ESP_OK;
-
-    camera_config_t config;
-    config.pixel_format = PIXFORMAT_RAW;
-
-    sensor_t *sensor = esp_camera_sensor_get();
-    sensor->pixformat = PIXFORMAT_RAW;
-
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+    uint64_t fr_start = esp_timer_get_time();
+#endif
     fb = esp_camera_fb_get();
     if (!fb)
     {
-        Serial.println("CAPTURE: failed to acquire frame");
+        log_e("Camera capture failed");
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
 
-    httpd_resp_set_type(req, "image/bmp");
+    httpd_resp_set_type(req, "image/x-windows-bmp");
     httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.bmp");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
-    size_t fb_len = 0;
-    if (fb->format == PIXFORMAT_RGB565)
-    {
-        fb_len = fb->len;
-        res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
-    }
-    else
-    {
-        res = ESP_FAIL;
-        Serial.println("Capture Error: Non-RGB565 image returned by camera module");
-    }
+    char ts[32];
+    snprintf(ts, 32, "%ld.%06ld", fb->timestamp.tv_sec, fb->timestamp.tv_usec);
+    httpd_resp_set_hdr(req, "X-Timestamp", (const char *)ts);
 
+
+    uint8_t * buf = NULL;
+    size_t buf_len = 0;
+    bool converted = frame2bmp(fb, &buf, &buf_len);
     esp_camera_fb_return(fb);
-    fb = NULL;
-
-    sensor->pixformat = PIXFORMAT_JPEG;
-
+    if(!converted){
+        log_e("BMP Conversion failed");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+    res = httpd_resp_send(req, (const char *)buf, buf_len);
+    free(buf);
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+    uint64_t fr_end = esp_timer_get_time();
+#endif
+    log_i("BMP: %llums, %uB", (uint64_t)((fr_end - fr_start) / 1000), buf_len);
     return res;
+}
+
+static size_t jpg_encode_stream(void *arg, size_t index, const void *data, size_t len)
+{
+    jpg_chunking_t *j = (jpg_chunking_t *)arg;
+    if (!index)
+    {
+        j->len = 0;
+    }
+    if (httpd_resp_send_chunk(j->req, (const char *)data, len) != ESP_OK)
+    {
+        return 0;
+    }
+    j->len += len;
+    return len;
 }
 
 static esp_err_t capture_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
     esp_err_t res = ESP_OK;
-
-    Serial.println("Capture Requested");
-    setLamp(lampVal);
-    delay(75); // coupled with the status led flash this gives ~150ms for lamp to settle.
-
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
     int64_t fr_start = esp_timer_get_time();
+#endif
 
+#if CONFIG_LED_ILLUMINATOR_ENABLED
+    enable_led(true);
+    vTaskDelay(150 / portTICK_PERIOD_MS); // The LED needs to be turned on ~150ms before the call to esp_camera_fb_get()
+    fb = esp_camera_fb_get();             // or it won't be visible in the frame. A better way to do this is needed.
+    enable_led(false);
+#else
     fb = esp_camera_fb_get();
+#endif
+
     if (!fb)
     {
-        Serial.println("CAPTURE: failed to acquire frame");
+        log_e("Camera capture failed");
         httpd_resp_send_500(req);
         return ESP_FAIL;
     }
-    // camera_fb_t* fb = convolution(fb_);
 
     httpd_resp_set_type(req, "image/jpeg");
     httpd_resp_set_hdr(req, "Content-Disposition", "inline; filename=capture.jpg");
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
 
-    size_t fb_len = 0;
-    if (fb->format == PIXFORMAT_JPEG)
-    {
-        fb_len = fb->len;
-        res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
-    }
-    else
-    {
-        res = ESP_FAIL;
-        Serial.println("Capture Error: Non-JPEG image returned by camera module");
-    }
-    esp_camera_fb_return(fb);
-    // esp_camera_fb_return(fb_);
-    fb = NULL;
+    char ts[32];
+    snprintf(ts, 32, "%ld.%06ld", fb->timestamp.tv_sec, fb->timestamp.tv_usec);
+    httpd_resp_set_hdr(req, "X-Timestamp", (const char *)ts);
 
-    // save to SD card if existent
-    String filename = "/image" + String(imagesServed);
-    saveImage(filename);
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+    size_t out_len, out_width, out_height;
+    uint8_t *out_buf;
+    bool s;
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+    bool detected = false;
+#endif
+    int face_id = 0;
+    if (!detection_enabled || fb->width > 400)
+    {
+#endif
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+        size_t fb_len = 0;
+#endif
+        if (fb->format == PIXFORMAT_JPEG)
+        {
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+            fb_len = fb->len;
+#endif
+            res = httpd_resp_send(req, (const char *)fb->buf, fb->len);
+        }
+        else
+        {
+            jpg_chunking_t jchunk = {req, 0};
+            res = frame2jpg_cb(fb, 80, jpg_encode_stream, &jchunk) ? ESP_OK : ESP_FAIL;
+            httpd_resp_send_chunk(req, NULL, 0);
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+            fb_len = jchunk.len;
+#endif
+        }
+        esp_camera_fb_return(fb);
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+        int64_t fr_end = esp_timer_get_time();
+#endif
+        log_i("JPG: %uB %ums", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
+        return res;
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+    }
 
+    jpg_chunking_t jchunk = {req, 0};
+
+    if (fb->format == PIXFORMAT_RGB565
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+     && !recognition_enabled
+#endif
+     ){
+#if TWO_STAGE
+        HumanFaceDetectMSR01 s1(0.1F, 0.5F, 10, 0.2F);
+        HumanFaceDetectMNP01 s2(0.5F, 0.3F, 5);
+        std::list<dl::detect::result_t> &candidates = s1.infer((uint16_t *)fb->buf, {(int)fb->height, (int)fb->width, 3});
+        std::list<dl::detect::result_t> &results = s2.infer((uint16_t *)fb->buf, {(int)fb->height, (int)fb->width, 3}, candidates);
+#else
+        HumanFaceDetectMSR01 s1(0.3F, 0.5F, 10, 0.2F);
+        std::list<dl::detect::result_t> &results = s1.infer((uint16_t *)fb->buf, {(int)fb->height, (int)fb->width, 3});
+#endif
+        if (results.size() > 0) {
+            fb_data_t rfb;
+            rfb.width = fb->width;
+            rfb.height = fb->height;
+            rfb.data = fb->buf;
+            rfb.bytes_per_pixel = 2;
+            rfb.format = FB_RGB565;
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+            detected = true;
+#endif
+            draw_face_boxes(&rfb, &results, face_id);
+        }
+        s = fmt2jpg_cb(fb->buf, fb->len, fb->width, fb->height, PIXFORMAT_RGB565, 90, jpg_encode_stream, &jchunk);
+        esp_camera_fb_return(fb);
+    } else
+    {
+        out_len = fb->width * fb->height * 3;
+        out_width = fb->width;
+        out_height = fb->height;
+        out_buf = (uint8_t*)malloc(out_len);
+        if (!out_buf) {
+            log_e("out_buf malloc failed");
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+        s = fmt2rgb888(fb->buf, fb->len, fb->format, out_buf);
+        esp_camera_fb_return(fb);
+        if (!s) {
+            free(out_buf);
+            log_e("To rgb888 failed");
+            httpd_resp_send_500(req);
+            return ESP_FAIL;
+        }
+
+        fb_data_t rfb;
+        rfb.width = out_width;
+        rfb.height = out_height;
+        rfb.data = out_buf;
+        rfb.bytes_per_pixel = 3;
+        rfb.format = FB_BGR888;
+
+#if TWO_STAGE
+        HumanFaceDetectMSR01 s1(0.1F, 0.5F, 10, 0.2F);
+        HumanFaceDetectMNP01 s2(0.5F, 0.3F, 5);
+        std::list<dl::detect::result_t> &candidates = s1.infer((uint8_t *)out_buf, {(int)out_height, (int)out_width, 3});
+        std::list<dl::detect::result_t> &results = s2.infer((uint8_t *)out_buf, {(int)out_height, (int)out_width, 3}, candidates);
+#else
+        HumanFaceDetectMSR01 s1(0.3F, 0.5F, 10, 0.2F);
+        std::list<dl::detect::result_t> &results = s1.infer((uint8_t *)out_buf, {(int)out_height, (int)out_width, 3});
+#endif
+
+        if (results.size() > 0) {
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+            detected = true;
+#endif
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+            if (recognition_enabled) {
+                face_id = run_face_recognition(&rfb, &results);
+            }
+#endif
+            draw_face_boxes(&rfb, &results, face_id);
+        }
+
+        s = fmt2jpg_cb(out_buf, out_len, out_width, out_height, PIXFORMAT_RGB888, 90, jpg_encode_stream, &jchunk);
+        free(out_buf);
+    }
+
+    if (!s) {
+        log_e("JPEG compression failed");
+        httpd_resp_send_500(req);
+        return ESP_FAIL;
+    }
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
     int64_t fr_end = esp_timer_get_time();
-    Serial.printf("JPG: %uB %ums\r\n", (uint32_t)(fb_len), (uint32_t)((fr_end - fr_start) / 1000));
-    imagesServed++;
-    setFrameIndex(imagesServed);
+#endif
+    log_i("FACE: %uB %ums %s%d", (uint32_t)(jchunk.len), (uint32_t)((fr_end - fr_start) / 1000), detected ? "DETECTED " : "", face_id);
     return res;
+#endif
 }
-
-bool IS_STREAMING = false;
 
 static esp_err_t stream_handler(httpd_req_t *req)
 {
     camera_fb_t *fb = NULL;
+    struct timeval _timestamp;
     esp_err_t res = ESP_OK;
     size_t _jpg_buf_len = 0;
     uint8_t *_jpg_buf = NULL;
-    char *part_buf[64];
+    char *part_buf[128];
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+    #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+        bool detected = false;
+        int64_t fr_ready = 0;
+        int64_t fr_recognize = 0;
+        int64_t fr_encode = 0;
+        int64_t fr_face = 0;
+        int64_t fr_start = 0;
+    #endif
+    int face_id = 0;
+    size_t out_len = 0, out_width = 0, out_height = 0;
+    uint8_t *out_buf = NULL;
+    bool s = false;
+#if TWO_STAGE
+    HumanFaceDetectMSR01 s1(0.1F, 0.5F, 10, 0.2F);
+    HumanFaceDetectMNP01 s2(0.5F, 0.3F, 5);
+#else
+    HumanFaceDetectMSR01 s1(0.3F, 0.5F, 10, 0.2F);
+#endif
+#endif
 
-    streamKill = false;
-
-    Serial.println("Stream requested");
     static int64_t last_frame = 0;
     if (!last_frame)
     {
@@ -283,70 +555,189 @@ static esp_err_t stream_handler(httpd_req_t *req)
     res = httpd_resp_set_type(req, _STREAM_CONTENT_TYPE);
     if (res != ESP_OK)
     {
-        Serial.println("STREAM: failed to set HTTP response type");
         return res;
     }
 
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    httpd_resp_set_hdr(req, "X-Framerate", "60");
 
-    if (res == ESP_OK)
-    {
-        res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
-    }
-
-    // handle timout from browser
-    int64_t last_successful_frame_time = esp_timer_get_time();
-    const int64_t TIMEOUT_THRESHOLD = 2000000; // 2 seconds in microseconds
+#if CONFIG_LED_ILLUMINATOR_ENABLED
+    isStreaming = true;
+    enable_led(true);
+#endif
 
     while (true)
     {
-
-        IS_STREAMING = true;
-        // in case we need to pause the stream since we save the images?
-        while (IS_STREAM_PAUSE)
-        {
-            delay(10);
-            IS_STREAMING = false;
-        }
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+    #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+        detected = false;
+    #endif
+        face_id = 0;
+#endif
 
         fb = esp_camera_fb_get();
         if (!fb)
         {
-            Serial.println("STREAM: failed to acquire frame");
+            log_e("Camera capture failed");
             res = ESP_FAIL;
         }
         else
         {
-            if (fb->format != PIXFORMAT_JPEG)
+            _timestamp.tv_sec = fb->timestamp.tv_sec;
+            _timestamp.tv_usec = fb->timestamp.tv_usec;
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+    #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+            fr_start = esp_timer_get_time();
+            fr_ready = fr_start;
+            fr_encode = fr_start;
+            fr_recognize = fr_start;
+            fr_face = fr_start;
+    #endif
+            if (!detection_enabled || fb->width > 400)
             {
-                Serial.println("STREAM: Non-JPEG frame returned by camera module");
-                res = ESP_FAIL;
+#endif
+                if (fb->format != PIXFORMAT_JPEG)
+                {
+                    bool jpeg_converted = frame2jpg(fb, 80, &_jpg_buf, &_jpg_buf_len);
+                    esp_camera_fb_return(fb);
+                    fb = NULL;
+                    if (!jpeg_converted)
+                    {
+                        log_e("JPEG compression failed");
+                        res = ESP_FAIL;
+                    }
+                }
+                else
+                {
+                    _jpg_buf_len = fb->len;
+                    _jpg_buf = fb->buf;
+                }
+#if CONFIG_ESP_FACE_DETECT_ENABLED
             }
             else
             {
-                _jpg_buf_len = fb->len;
-                _jpg_buf = fb->buf;
-                // Serial.println(_jpg_buf_len);
+                if (fb->format == PIXFORMAT_RGB565
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+                    && !recognition_enabled
+#endif
+                ){
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+                    fr_ready = esp_timer_get_time();
+#endif
+#if TWO_STAGE
+                    std::list<dl::detect::result_t> &candidates = s1.infer((uint16_t *)fb->buf, {(int)fb->height, (int)fb->width, 3});
+                    std::list<dl::detect::result_t> &results = s2.infer((uint16_t *)fb->buf, {(int)fb->height, (int)fb->width, 3}, candidates);
+#else
+                    std::list<dl::detect::result_t> &results = s1.infer((uint16_t *)fb->buf, {(int)fb->height, (int)fb->width, 3});
+#endif
+#if CONFIG_ESP_FACE_DETECT_ENABLED && ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+                    fr_face = esp_timer_get_time();
+                    fr_recognize = fr_face;
+#endif
+                    if (results.size() > 0) {
+                        fb_data_t rfb;
+                        rfb.width = fb->width;
+                        rfb.height = fb->height;
+                        rfb.data = fb->buf;
+                        rfb.bytes_per_pixel = 2;
+                        rfb.format = FB_RGB565;
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+                        detected = true;
+#endif
+                        draw_face_boxes(&rfb, &results, face_id);
+                    }
+                    s = fmt2jpg(fb->buf, fb->len, fb->width, fb->height, PIXFORMAT_RGB565, 80, &_jpg_buf, &_jpg_buf_len);
+                    esp_camera_fb_return(fb);
+                    fb = NULL;
+                    if (!s) {
+                        log_e("fmt2jpg failed");
+                        res = ESP_FAIL;
+                    }
+#if CONFIG_ESP_FACE_DETECT_ENABLED && ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+                    fr_encode = esp_timer_get_time();
+#endif
+                } else
+                {
+                    out_len = fb->width * fb->height * 3;
+                    out_width = fb->width;
+                    out_height = fb->height;
+                    out_buf = (uint8_t*)malloc(out_len);
+                    if (!out_buf) {
+                        log_e("out_buf malloc failed");
+                        res = ESP_FAIL;
+                    } else {
+                        s = fmt2rgb888(fb->buf, fb->len, fb->format, out_buf);
+                        esp_camera_fb_return(fb);
+                        fb = NULL;
+                        if (!s) {
+                            free(out_buf);
+                            log_e("To rgb888 failed");
+                            res = ESP_FAIL;
+                        } else {
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+                            fr_ready = esp_timer_get_time();
+#endif
+
+                            fb_data_t rfb;
+                            rfb.width = out_width;
+                            rfb.height = out_height;
+                            rfb.data = out_buf;
+                            rfb.bytes_per_pixel = 3;
+                            rfb.format = FB_BGR888;
+
+#if TWO_STAGE
+                            std::list<dl::detect::result_t> &candidates = s1.infer((uint8_t *)out_buf, {(int)out_height, (int)out_width, 3});
+                            std::list<dl::detect::result_t> &results = s2.infer((uint8_t *)out_buf, {(int)out_height, (int)out_width, 3}, candidates);
+#else
+                            std::list<dl::detect::result_t> &results = s1.infer((uint8_t *)out_buf, {(int)out_height, (int)out_width, 3});
+#endif
+
+#if CONFIG_ESP_FACE_DETECT_ENABLED && ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+                            fr_face = esp_timer_get_time();
+                            fr_recognize = fr_face;
+#endif
+
+                            if (results.size() > 0) {
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+                                detected = true;
+#endif
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+                                if (recognition_enabled) {
+                                    face_id = run_face_recognition(&rfb, &results);
+    #if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+                                    fr_recognize = esp_timer_get_time();
+    #endif
+                                }
+#endif
+                                draw_face_boxes(&rfb, &results, face_id);
+                            }
+                            s = fmt2jpg(out_buf, out_len, out_width, out_height, PIXFORMAT_RGB888, 90, &_jpg_buf, &_jpg_buf_len);
+                            free(out_buf);
+                            if (!s) {
+                                log_e("fmt2jpg failed");
+                                res = ESP_FAIL;
+                            }
+#if CONFIG_ESP_FACE_DETECT_ENABLED && ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+                            fr_encode = esp_timer_get_time();
+#endif
+                        }
+                    }
+                }
             }
-        }
-        if (res == ESP_OK)
-        {
-            size_t hlen = snprintf((char *)part_buf, 64, _STREAM_PART, _jpg_buf_len);
-            res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
-        }
-        else
-        {
-            log_d("STREAM: corrupted frame");
-            // ESP.restart();
-        }
-        if (res == ESP_OK)
-        {
-            res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
-            last_successful_frame_time = esp_timer_get_time(); // Update the time when a frame is successfully sent
+#endif
         }
         if (res == ESP_OK)
         {
             res = httpd_resp_send_chunk(req, _STREAM_BOUNDARY, strlen(_STREAM_BOUNDARY));
+        }
+        if (res == ESP_OK)
+        {
+            size_t hlen = snprintf((char *)part_buf, 128, _STREAM_PART, _jpg_buf_len, _timestamp.tv_sec, _timestamp.tv_usec);
+            res = httpd_resp_send_chunk(req, (const char *)part_buf, hlen);
+        }
+        if (res == ESP_OK)
+        {
+            res = httpd_resp_send_chunk(req, (const char *)_jpg_buf, _jpg_buf_len);
         }
         if (fb)
         {
@@ -361,107 +752,99 @@ static esp_err_t stream_handler(httpd_req_t *req)
         }
         if (res != ESP_OK)
         {
-            // This is the error exit point from the stream loop.
-            // We end the stream here only if a Hard failure has been encountered or the connection has been interrupted.
-            Serial.printf("Stream failed, code = %i : %s\r\n", res, esp_err_to_name(res));
+            log_e("Send frame failed");
             break;
         }
-        if ((res != ESP_OK) || streamKill)
-        {
-            // We end the stream here when a kill is signalled.
-            Serial.printf("Stream killed\r\n");
-            break;
-        }
-        int64_t frame_time = esp_timer_get_time() - last_frame;
-        frame_time /= 1000;
-        int32_t frame_delay = (minFrameTime > frame_time) ? minFrameTime - frame_time : 0;
-        delay(frame_delay);
+        int64_t fr_end = esp_timer_get_time();
 
-        last_frame = esp_timer_get_time();
-        int64_t current_time = esp_timer_get_time();
-        if (current_time - last_successful_frame_time > TIMEOUT_THRESHOLD)
-        {
-            Serial.printf("Stream timeout\r\n");
-            break; // End the stream if the timeout threshold is exceeded
-        }
+#if CONFIG_ESP_FACE_DETECT_ENABLED && ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+        int64_t ready_time = (fr_ready - fr_start) / 1000;
+        int64_t face_time = (fr_face - fr_ready) / 1000;
+        int64_t recognize_time = (fr_recognize - fr_face) / 1000;
+        int64_t encode_time = (fr_encode - fr_recognize) / 1000;
+        int64_t process_time = (fr_encode - fr_start) / 1000;
+#endif
+
+        int64_t frame_time = fr_end - last_frame;
+        frame_time /= 1000;
+#if ARDUHAL_LOG_LEVEL >= ARDUHAL_LOG_LEVEL_INFO
+        uint32_t avg_frame_time = ra_filter_run(&ra_filter, frame_time);
+#endif
+        log_i("MJPG: %uB %ums (%.1ffps), AVG: %ums (%.1ffps)"
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+                      ", %u+%u+%u+%u=%u %s%d"
+#endif
+                 ,
+                 (uint32_t)(_jpg_buf_len),
+                 (uint32_t)frame_time, 1000.0 / (uint32_t)frame_time,
+                 avg_frame_time, 1000.0 / avg_frame_time
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+                 ,
+                 (uint32_t)ready_time, (uint32_t)face_time, (uint32_t)recognize_time, (uint32_t)encode_time, (uint32_t)process_time,
+                 (detected) ? "DETECTED " : "", face_id
+#endif
+        );
     }
 
-    Serial.println("Stream ended");
-    last_frame = 0;
-    IS_STREAMING = false;
+#if CONFIG_LED_ILLUMINATOR_ENABLED
+    isStreaming = false;
+    enable_led(false);
+#endif
+
     return res;
 }
 
-bool isStreaming = false;
-
-static esp_err_t cmd_handler(httpd_req_t *req)
+static esp_err_t parse_get(httpd_req_t *req, char **obuf)
 {
-    char *buf;
-    size_t buf_len;
-    char variable[32] = {
-        0,
-    };
-    char value[32] = {
-        0,
-    };
+    char *buf = NULL;
+    size_t buf_len = 0;
 
     buf_len = httpd_req_get_url_query_len(req) + 1;
-    if (buf_len > 1)
-    {
+    if (buf_len > 1) {
         buf = (char *)malloc(buf_len);
-        if (!buf)
-        {
+        if (!buf) {
             httpd_resp_send_500(req);
             return ESP_FAIL;
         }
-        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK)
-        {
-            if (httpd_query_key_value(buf, "var", variable, sizeof(variable)) == ESP_OK &&
-                httpd_query_key_value(buf, "val", value, sizeof(value)) == ESP_OK)
-            {
-            }
-            else
-            {
-                free(buf);
-                httpd_resp_send_404(req);
-                return ESP_FAIL;
-            }
-        }
-        else
-        {
-            free(buf);
-            httpd_resp_send_404(req);
-            return ESP_FAIL;
+        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK) {
+            *obuf = buf;
+            return ESP_OK;
         }
         free(buf);
     }
-    else
-    {
+    httpd_resp_send_404(req);
+    return ESP_FAIL;
+}
+
+static esp_err_t cmd_handler(httpd_req_t *req)
+{
+    char *buf = NULL;
+    char variable[32];
+    char value[32];
+
+    if (parse_get(req, &buf) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    if (httpd_query_key_value(buf, "var", variable, sizeof(variable)) != ESP_OK ||
+        httpd_query_key_value(buf, "val", value, sizeof(value)) != ESP_OK) {
+        free(buf);
         httpd_resp_send_404(req);
         return ESP_FAIL;
     }
-
-    if (critERR.length() > 0)
-        return httpd_resp_send_500(req);
+    free(buf);
 
     int val = atoi(value);
+    log_i("%s = %d", variable, val);
     sensor_t *s = esp_camera_sensor_get();
     int res = 0;
-    Serial.print("CMD: var= ");
-    Serial.print(variable);
-    Serial.println(value);
-    if (!strcmp(variable, "framesize"))
-    {
-        if (s->pixformat == PIXFORMAT_JPEG)
+
+    if (!strcmp(variable, "framesize")) {
+        if (s->pixformat == PIXFORMAT_JPEG) {
             res = s->set_framesize(s, (framesize_t)val);
+        }
     }
     else if (!strcmp(variable, "quality"))
         res = s->set_quality(s, val);
-    else if (!strcmp(variable, "xclk"))
-    {
-        xclk = val;
-        res = s->set_xclk(s, LEDC_TIMER_0, val);
-    }
     else if (!strcmp(variable, "contrast"))
         res = s->set_contrast(s, val);
     else if (!strcmp(variable, "brightness"))
@@ -498,13 +881,6 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         res = s->set_wpc(s, val);
     else if (!strcmp(variable, "raw_gma"))
         res = s->set_raw_gma(s, val);
-    else if (!strcmp(variable, "isTimelapse"))
-    {
-        Serial.print("Changing timelapse is enable to: ");
-        Serial.println(val);
-        isTimelapse = val;
-        setisTimelapse(val);
-    }
     else if (!strcmp(variable, "lenc"))
         res = s->set_lenc(s, val);
     else if (!strcmp(variable, "special_effect"))
@@ -513,207 +889,128 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         res = s->set_wb_mode(s, val);
     else if (!strcmp(variable, "ae_level"))
         res = s->set_ae_level(s, val);
-    else if (!strcmp(variable, "rotate"))
-        myRotation = val;
-    else if (!strcmp(variable, "min_frame_time"))
-        minFrameTime = val;
-    else if (!strcmp(variable, "lamp") && (lampVal != -1))
-    {
-        lampVal = constrain(val, 0, 100);
+#if CONFIG_LED_ILLUMINATOR_ENABLED
+    else if (!strcmp(variable, "led_intensity")) {
+        led_duty = val;
+        if (isStreaming)
+            enable_led(true);
     }
-    // control focus motor
-    else if (!strcmp(variable, "mFocusUp"))
-    {
-        val = 50;
-        Serial.print("Moving focus up");
-        Serial.println(val);
-        moveFocusRelative(val, true);
-    }
-    else if (!strcmp(variable, "mFocusDown"))
-    {
-        val = -50;
-        Serial.print("Moving focus down");
-        Serial.println(val);
-        moveFocusRelative(val, true);
-    }
-    else if (!strcmp(variable, "mAutoFocus"))
-    {
-        Serial.print("Autofocus with default settings");
-        autoFocus(-500, 500, 25);
-    }
-    else if (!strcmp(variable, "autofocus"))
-    { // http://192.168.4.1/control?var=autofocus&val=-100;100;2
-        // http://192.168.137.108//control?var=autofocus&val=419;512;2
+#endif
 
-        int posMin = -100;
-        int posMax = 100;
-        int posSteps = 20;
-        // Extract three integers separated by semicolons.
-        int parsedValues = sscanf(value, "%d;%d;%d", &posMin, &posMax, &posSteps);
-        if (parsedValues == 3)
-        { // Ensure all three integers were found and parsed
-            printf("posMin: %d, posMax: %d, posSteps: %d\n", posMin, posMax, posSteps);
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+    else if (!strcmp(variable, "face_detect")) {
+        detection_enabled = val;
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+        if (!detection_enabled) {
+            recognition_enabled = 0;
         }
-        else
-        {
-            // Handle error: the format was not as expected.
-            printf("Failed to parse all values.\n");
-        }
-        Serial.print("Moving focus at speed");
-        Serial.println(val);
-        autoFocus(posMin, posMax, posSteps);
+#endif
     }
-    else if (!strcmp(variable, "focusSlider"))
-    {
-        // http://192.168.137.198/control?var=focusSlider&val=1000
-        Serial.print("Moving focus at speed");
-        Serial.println(val);
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+    else if (!strcmp(variable, "face_enroll")){
+        is_enrolling = !is_enrolling;
+        log_i("Enrolling: %s", is_enrolling?"true":"false");
     }
-    else if (!strcmp(variable, "pwm") && (pwmVal != -1))
-    {
-        ledcSetup(lampChannel, pwmfreq, pwmresolution); // configure LED PWM channel
-        ledcAttachPin(LAMP_PIN, lampChannel);           // attach the GPIO pin to the channel
-
-        pwmVal = val; // constrain(val, 0, 100);
-        setPWMVal(SPIFFS, pwmVal);
-        setPWM(pwmVal);
-    }
-    else if (!strcmp(variable, "neopixel"))
-    {
-        setNeopixel(val);
-    }
-    else if (!strcmp(variable, "timelapseInterval"))
-    {
-        Serial.print("Changing timelapse interval to: ");
-        Serial.println(val);
-        timelapseInterval = val;
-        setTimelapseInterval(SPIFFS, timelapseInterval);
-    }
-    else if (!strcmp(variable, "autofocusInterval"))
-    {
-        Serial.print("Changing autofocus interval to: ");
-        Serial.println(val);
-        autofocusInterval = val;
-        setAutofocusInterval(SPIFFS, autofocusInterval);
-    }
-    else if (!strcmp(variable, "save_prefs"))
-    {
-        if (filesystem)
-        {
-            writePrefsToSSpiffs(SPIFFS);
-            printPrefs(SPIFFS);
-        }
-        else
-        {
-            log_d("No filesystem, not saving prefs");
+    else if (!strcmp(variable, "face_recognize")) {
+        recognition_enabled = val;
+        if (recognition_enabled) {
+            detection_enabled = val;
         }
     }
-    else if (!strcmp(variable, "clear_prefs"))
-    {
-        if (filesystem)
-            removePrefs(SPIFFS);
-    }
-    else if (!strcmp(variable, "reboot"))
-    {
-        if (lampVal != -1)
-            setLamp(0); // kill the lamp; otherwise it can remain on during the soft-reboot
-        if (pwmVal != -1)
-            setPWM(0);
-        esp_task_wdt_init(3, true); // schedule a a watchdog panic event for 3 seconds in the future
-        esp_task_wdt_add(NULL);
-        periph_module_disable(PERIPH_I2C0_MODULE); // try to shut I2C down properly
-        periph_module_disable(PERIPH_I2C1_MODULE);
-        periph_module_reset(PERIPH_I2C0_MODULE);
-        periph_module_reset(PERIPH_I2C1_MODULE);
-        Serial.print("REBOOT requested");
-    }
-    else
-    {
+#endif
+#endif
+    else {
+        log_i("Unknown command: %s", variable);
         res = -1;
     }
-    if (res)
-    {
+
+    if (res < 0) {
         return httpd_resp_send_500(req);
     }
+
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, NULL, 0);
 }
 
-static esp_err_t mac_handler(httpd_req_t *req)
-{
-    uint8_t mac[6];
-    WiFi.macAddress(mac);
-    // Create the filename string
-    char macaddress[32];
-    sprintf(macaddress, "%02X%02X%02X%02X%02X%02X.jpg", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-
-    // Construct a random URL
-    static char json_response[1024];
-    char *p = json_response;
-    *p++ = '{';
-    // Do not get attempt to get sensor when in error; causes a panic..
-    p += sprintf(p, "\"mac\":%d,", macaddress);
-
-    *p++ = '}';
-    *p++ = 0;
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    return httpd_resp_send(req, json_response, strlen(json_response));
+static int print_reg(char * p, sensor_t * s, uint16_t reg, uint32_t mask){
+    return sprintf(p, "\"0x%x\":%u,", reg, s->get_reg(s, reg, mask));
 }
 
 static esp_err_t status_handler(httpd_req_t *req)
 {
-
     static char json_response[1024];
+
+    sensor_t *s = esp_camera_sensor_get();
     char *p = json_response;
     *p++ = '{';
 
-    // FIXME: We should have an indicator if SD card was properly mounted
+    if(s->id.PID == OV5640_PID || s->id.PID == OV3660_PID){
+        for(int reg = 0x3400; reg < 0x3406; reg+=2){
+            p+=print_reg(p, s, reg, 0xFFF);//12 bit
+        }
+        p+=print_reg(p, s, 0x3406, 0xFF);
 
-    // Do not get attempt to get sensor when in error; causes a panic..
-    if (critERR.length() == 0)
-    {
-        sensor_t *s = esp_camera_sensor_get();
-        p += sprintf(p, "\"lamp\":%d,", lampVal);
-        p += sprintf(p, "\"min_frame_time\":%d,", minFrameTime);
-        p += sprintf(p, "\"framesize\":%u,", s->status.framesize);
-        p += sprintf(p, "\"quality\":%u,", s->status.quality);
-        p += sprintf(p, "\"xclk\":%u,", xclk);
-        p += sprintf(p, "\"brightness\":%d,", s->status.brightness);
-        p += sprintf(p, "\"contrast\":%d,", s->status.contrast);
-        p += sprintf(p, "\"saturation\":%d,", s->status.saturation);
-        p += sprintf(p, "\"sharpness\":%d,", s->status.sharpness);
-        p += sprintf(p, "\"special_effect\":%u,", s->status.special_effect);
-        p += sprintf(p, "\"wb_mode\":%u,", s->status.wb_mode);
-        p += sprintf(p, "\"awb\":%u,", s->status.awb);
-        p += sprintf(p, "\"awb_gain\":%u,", s->status.awb_gain);
-        p += sprintf(p, "\"aec\":%u,", s->status.aec);
-        p += sprintf(p, "\"aec2\":%u,", s->status.aec2);
-        p += sprintf(p, "\"ae_level\":%d,", s->status.ae_level);
-        p += sprintf(p, "\"aec_value\":%u,", s->status.aec_value);
-        p += sprintf(p, "\"agc\":%u,", s->status.agc);
-        p += sprintf(p, "\"agc_gain\":%u,", s->status.agc_gain);
-        p += sprintf(p, "\"gainceiling\":%u,", s->status.gainceiling);
-        p += sprintf(p, "\"bpc\":%u,", s->status.bpc);
-        p += sprintf(p, "\"wpc\":%u,", s->status.wpc);
-        p += sprintf(p, "\"raw_gma\":%u,", s->status.raw_gma);
-        p += sprintf(p, "\"lenc\":%u,", s->status.lenc);
-        p += sprintf(p, "\"vflip\":%u,", s->status.vflip);
-        p += sprintf(p, "\"hmirror\":%u,", s->status.hmirror);
-        p += sprintf(p, "\"dcw\":%u,", s->status.dcw);
-        p += sprintf(p, "\"colorbar\":%u,", s->status.colorbar);
-        p += sprintf(p, "\"cam_name\":\"%s\",", myName);
-        p += sprintf(p, "\"code_ver\":\"%s\",", myVer);
-        p += sprintf(p, "\"rotate\":\"%d\",", myRotation);
-        p += sprintf(p, "\"stream_url\":\"%s\",", streamURL);
-        p += sprintf(p, "\"sd_card\":%d,", sdInitialized);
-        // p += sprintf(p, "\"compiled_date\":%llu,", compileDate);
-        p += sprintf(p, "\"images_served\":\"%u\",", imagesServed);
-        p += sprintf(p, "\"isTimelapse\":\"%u\",", isTimelapse);
-        p += sprintf(p, "\"focusSlider\":\"%d\",", 1);
-        p += sprintf(p, "\"timelapseInterval\":\"%d\",", timelapseInterval);
-        p += sprintf(p, "\"autofocusInterval\":\"%d\"", autofocusInterval);
+        p+=print_reg(p, s, 0x3500, 0xFFFF0);//16 bit
+        p+=print_reg(p, s, 0x3503, 0xFF);
+        p+=print_reg(p, s, 0x350a, 0x3FF);//10 bit
+        p+=print_reg(p, s, 0x350c, 0xFFFF);//16 bit
+
+        for(int reg = 0x5480; reg <= 0x5490; reg++){
+            p+=print_reg(p, s, reg, 0xFF);
+        }
+
+        for(int reg = 0x5380; reg <= 0x538b; reg++){
+            p+=print_reg(p, s, reg, 0xFF);
+        }
+
+        for(int reg = 0x5580; reg < 0x558a; reg++){
+            p+=print_reg(p, s, reg, 0xFF);
+        }
+        p+=print_reg(p, s, 0x558a, 0x1FF);//9 bit
+    } else if(s->id.PID == OV2640_PID){
+        p+=print_reg(p, s, 0xd3, 0xFF);
+        p+=print_reg(p, s, 0x111, 0xFF);
+        p+=print_reg(p, s, 0x132, 0xFF);
     }
+
+    p += sprintf(p, "\"xclk\":%u,", s->xclk_freq_hz / 1000000);
+    p += sprintf(p, "\"pixformat\":%u,", s->pixformat);
+    p += sprintf(p, "\"framesize\":%u,", s->status.framesize);
+    p += sprintf(p, "\"quality\":%u,", s->status.quality);
+    p += sprintf(p, "\"brightness\":%d,", s->status.brightness);
+    p += sprintf(p, "\"contrast\":%d,", s->status.contrast);
+    p += sprintf(p, "\"saturation\":%d,", s->status.saturation);
+    p += sprintf(p, "\"sharpness\":%d,", s->status.sharpness);
+    p += sprintf(p, "\"special_effect\":%u,", s->status.special_effect);
+    p += sprintf(p, "\"wb_mode\":%u,", s->status.wb_mode);
+    p += sprintf(p, "\"awb\":%u,", s->status.awb);
+    p += sprintf(p, "\"awb_gain\":%u,", s->status.awb_gain);
+    p += sprintf(p, "\"aec\":%u,", s->status.aec);
+    p += sprintf(p, "\"aec2\":%u,", s->status.aec2);
+    p += sprintf(p, "\"ae_level\":%d,", s->status.ae_level);
+    p += sprintf(p, "\"aec_value\":%u,", s->status.aec_value);
+    p += sprintf(p, "\"agc\":%u,", s->status.agc);
+    p += sprintf(p, "\"agc_gain\":%u,", s->status.agc_gain);
+    p += sprintf(p, "\"gainceiling\":%u,", s->status.gainceiling);
+    p += sprintf(p, "\"bpc\":%u,", s->status.bpc);
+    p += sprintf(p, "\"wpc\":%u,", s->status.wpc);
+    p += sprintf(p, "\"raw_gma\":%u,", s->status.raw_gma);
+    p += sprintf(p, "\"lenc\":%u,", s->status.lenc);
+    p += sprintf(p, "\"hmirror\":%u,", s->status.hmirror);
+    p += sprintf(p, "\"dcw\":%u,", s->status.dcw);
+    p += sprintf(p, "\"colorbar\":%u", s->status.colorbar);
+#if CONFIG_LED_ILLUMINATOR_ENABLED
+    p += sprintf(p, ",\"led_intensity\":%u", led_duty);
+#else
+    p += sprintf(p, ",\"led_intensity\":%d", -1);
+#endif
+#if CONFIG_ESP_FACE_DETECT_ENABLED
+    p += sprintf(p, ",\"face_detect\":%u", detection_enabled);
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+    p += sprintf(p, ",\"face_enroll\":%u,", is_enrolling);
+    p += sprintf(p, "\"face_recognize\":%u", recognition_enabled);
+#endif
+#endif
     *p++ = '}';
     *p++ = 0;
     httpd_resp_set_type(req, "application/json");
@@ -721,868 +1018,377 @@ static esp_err_t status_handler(httpd_req_t *req)
     return httpd_resp_send(req, json_response, strlen(json_response));
 }
 
-static esp_err_t info_handler(httpd_req_t *req)
+static esp_err_t xclk_handler(httpd_req_t *req)
 {
-    static char json_response[256];
-    char *p = json_response;
-    *p++ = '{';
-    p += sprintf(p, "\"cam_name\":\"%s\",", myName);
-    p += sprintf(p, "\"rotate\":\"%d\",", myRotation);
-    p += sprintf(p, "\"stream_url\":\"%s\"", streamURL);
-    *p++ = '}';
-    *p++ = 0;
-    httpd_resp_set_type(req, "application/json");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-    return httpd_resp_send(req, json_response, strlen(json_response));
-}
+    char *buf = NULL;
+    char _xclk[32];
 
-static esp_err_t favicon_16x16_handler(httpd_req_t *req)
-{
-    httpd_resp_set_type(req, "image/png");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, (const char *)favicon_16x16_png, favicon_16x16_png_len);
-}
-
-static esp_err_t favicon_32x32_handler(httpd_req_t *req)
-{
-    httpd_resp_set_type(req, "image/png");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, (const char *)favicon_32x32_png, favicon_32x32_png_len);
-}
-
-static esp_err_t favicon_ico_handler(httpd_req_t *req)
-{
-    httpd_resp_set_type(req, "image/x-icon");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, (const char *)favicon_ico, favicon_ico_len);
-}
-
-static esp_err_t logo_svg_handler(httpd_req_t *req)
-{
-    httpd_resp_set_type(req, "image/svg+xml");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, (const char *)logo_svg, logo_svg_len);
-}
-
-static esp_err_t dump_handler(httpd_req_t *req)
-{
-    Serial.println("\r\nDump requested via Web");
-    static char dumpOut[2000] = "";
-    char *d = dumpOut;
-    // Header
-    d += sprintf(d, "<html><head><meta charset=\"utf-8\">\n");
-    d += sprintf(d, "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n");
-    d += sprintf(d, "<title>%s - Status</title>\n", myName);
-    d += sprintf(d, "<link rel=\"icon\" type=\"image/png\" sizes=\"32x32\" href=\"/favicon-32x32.png\">\n");
-    d += sprintf(d, "<link rel=\"icon\" type=\"image/png\" sizes=\"16x16\" href=\"/favicon-16x16.png\">\n");
-    d += sprintf(d, "<link rel=\"stylesheet\" type=\"text/css\" href=\"/style.css\">\n");
-    d += sprintf(d, "</head>\n");
-    d += sprintf(d, "<body>\n");
-    d += sprintf(d, "<img src=\"/logo.svg\" style=\"position: relative; float: right;\">\n");
-    if (critERR.length() > 0)
-    {
-        d += sprintf(d, "%s<hr>\n", critERR.c_str());
+    if (parse_get(req, &buf) != ESP_OK) {
+        return ESP_FAIL;
     }
-    d += sprintf(d, "<h1>ESP32 Cam Webserver</h1>\n");
-    // Module
-    d += sprintf(d, "Name: %s<br>\n", myName);
-    d += sprintf(d, "Firmware: %s (base: %s)<br>\n", myVer, baseVersion);
-    d += sprintf(d, "ESP sdk: %s<br>\n", ESP.getSdkVersion());
-    // Network
-    d += sprintf(d, "<h2>WiFi</h2>\n");
-    d += sprintf(d, "Mode: Client<br>\n");
-    String ssidName = WiFi.SSID();
-    d += sprintf(d, "SSID: %s<br>\n", ssidName.c_str());
-    d += sprintf(d, "Rssi: %i<br>\n", WiFi.RSSI());
-    String bssid = WiFi.BSSIDstr();
-    d += sprintf(d, "BSSID: %s<br>\n", bssid.c_str());
-    d += sprintf(d, "IP address: %d.%d.%d.%d<br>\n", ip[0], ip[1], ip[2], ip[3]);
-    if (!is_accesspoint)
-    {
-        d += sprintf(d, "Netmask: %d.%d.%d.%d<br>\n", net[0], net[1], net[2], net[3]);
-        d += sprintf(d, "Gateway: %d.%d.%d.%d<br>\n", gw[0], gw[1], gw[2], gw[3]);
+    if (httpd_query_key_value(buf, "xclk", _xclk, sizeof(_xclk)) != ESP_OK) {
+        free(buf);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
     }
-    d += sprintf(d, "Http port: %i, Stream port: %i<br>\n", httpPort, streamPort);
-    byte mac[6];
-    WiFi.macAddress(mac);
-    d += sprintf(d, "MAC: %02X:%02X:%02X:%02X:%02X:%02X<br>\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    free(buf);
 
-    // System
-    d += sprintf(d, "<h2>System</h2>\n");
+    int xclk = atoi(_xclk);
+    log_i("Set XCLK: %d MHz", xclk);
 
-    int64_t sec = esp_timer_get_time() / 1000000;
-    int64_t upDays = int64_t(floor(sec / 86400));
-    int upHours = int64_t(floor(sec / 3600)) % 24;
-    int upMin = int64_t(floor(sec / 60)) % 60;
-    int upSec = sec % 60;
-
-    d += sprintf(d, "Up: %" PRId64 ":%02i:%02i:%02i (d:h:m:s)<br>\n", upDays, upHours, upMin, upSec);
-    d += sprintf(d, "CPU Freq: %i MHz, Xclk Freq: %i MHz<br>\n", ESP.getCpuFreqMHz(), xclk);
-    d += sprintf(d, "<span title=\"NOTE: Internal temperature sensor readings can be innacurate on the ESP32-c1 chipset, and may vary significantly between devices!\">");
-    d += sprintf(d, "Heap: %i, free: %i, min free: %i, max block: %i<br>\n", ESP.getHeapSize(), ESP.getFreeHeap(), ESP.getMinFreeHeap(), ESP.getMaxAllocHeap());
-    if (psramFound())
-    {
-        d += sprintf(d, "Psram: %i, free: %i, min free: %i, max block: %i<br>\n", ESP.getPsramSize(), ESP.getFreePsram(), ESP.getMinFreePsram(), ESP.getMaxAllocPsram());
-    }
-    else
-    {
-        d += sprintf(d, "Psram: <span style=\"color:red;\">Not found</span>, please check your board configuration.<br>\n");
-        d += sprintf(d, "- High resolution/quality images & streams will show incomplete frames due to low memory.<br>\n");
-    }
-    if (filesystem && (SPIFFS.totalBytes() > 0))
-    {
-        d += sprintf(d, "Spiffs: %i, used: %i<br>\n", SPIFFS.totalBytes(), SPIFFS.usedBytes());
-    }
-    else
-    {
-        d += sprintf(d, "Spiffs: <span style=\"color:red;\">No filesystem found</span>, please check your board configuration.<br>\n");
-        d += sprintf(d, "- saving and restoring camera settings will not function without this.<br>\n");
+    sensor_t *s = esp_camera_sensor_get();
+    int res = s->set_xclk(s, LEDC_TIMER_0, xclk);
+    if (res) {
+        return httpd_resp_send_500(req);
     }
 
-    // Footer
-    d += sprintf(d, "<br><div class=\"input-group\">\n");
-    d += sprintf(d, "<button title=\"Instant Refresh; the page reloads every minute anyway\" onclick=\"location.replace(document.URL)\">Refresh</button>\n");
-    d += sprintf(d, "<button title=\"Force-stop all active streams on the camera module\" ");
-    d += sprintf(d, "onclick=\"let throwaway = fetch('stop');setTimeout(function(){\nlocation.replace(document.URL);\n}, 200);\">Kill Stream</button>\n");
-    d += sprintf(d, "<button title=\"Close this page\" onclick=\"javascript:window.close()\">Close</button>\n");
-    d += sprintf(d, "</div>\n</body>\n");
-    // A javascript timer to refresh the page every minute.
-    d += sprintf(d, "<script>\nsetTimeout(function(){\nlocation.replace(document.URL);\n}, 60000);\n");
-    d += sprintf(d, "</script>\n</html>\n");
-    *d++ = 0;
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, dumpOut, strlen(dumpOut));
-}
-
-static esp_err_t stop_handler(httpd_req_t *req)
-{
-    Serial.println("\r\nStream stop requested via Web");
-    streamKill = true;
     httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
     return httpd_resp_send(req, NULL, 0);
 }
 
-static esp_err_t style_handler(httpd_req_t *req)
+static esp_err_t reg_handler(httpd_req_t *req)
 {
-    httpd_resp_set_type(req, "text/css");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, (const char *)style_css, style_css_len);
-}
+    char *buf = NULL;
+    char _reg[32];
+    char _mask[32];
+    char _val[32];
 
-static esp_err_t streamviewer_handler(httpd_req_t *req)
-{
-
-    Serial.println("Stream viewer requested");
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, (const char *)streamviewer_html, streamviewer_html_len);
-}
-
-static esp_err_t error_handler(httpd_req_t *req)
-{
-    Serial.println("Sending error page");
-    std::string s(error_html);
-    size_t index;
-    while ((index = s.find("<APPURL>")) != std::string::npos)
-        s.replace(index, strlen("<APPURL>"), httpURL);
-    while ((index = s.find("<CAMNAME>")) != std::string::npos)
-        s.replace(index, strlen("<CAMNAME>"), myName);
-    while ((index = s.find("<ERRORTEXT>")) != std::string::npos)
-        s.replace(index, strlen("<ERRORTEXT>"), critERR.c_str());
-    httpd_resp_set_type(req, "text/html");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, (const char *)s.c_str(), s.length());
-}
-
-esp_err_t client_event_get_handler(esp_http_client_event_handle_t evt)
-{
-    switch (evt->event_id)
-    {
-    case HTTP_EVENT_ON_DATA:
-        printf("HTTP GET EVENT DATA: %s", (char *)evt->data);
-        break;
-
-    default:
-        break;
+    if (parse_get(req, &buf) != ESP_OK) {
+        return ESP_FAIL;
     }
-    return ESP_OK;
-}
-
-void saveCapturedImageiNaturalist()
-{
-    /* Write a function that uploads an image using the iNaturalist REST API
-     */
-    Serial.println("Performing Saving Capture for iNaturalist in Background");
-    // choose smaller pixel number
-    sensor_t *s = esp_camera_sensor_get();
-    s->set_framesize(s, FRAMESIZE_VGA); // FRAMESIZE_[QQVGA|HQVGA|QVGA|CIF|VGA|SVGA|XGA|SXGA|UXGA]
-}
-
-
-// HTTP handler to serve the file for download
-// e.g. http://192.168.4.1/downloadfile?filename=image661.jpg
-esp_err_t downloadfile_handler(httpd_req_t *req)
-{
-    log_d("Downloading file");
-    log_d("Request URI: %s", req->uri);
-
-    char filename[128];
-    size_t filename_len = httpd_req_get_url_query_len(req) + 1;
-    log_d("filename_len %i", filename_len);
-    if (filename_len > 1)
-    {
-        char *buf = (char *)malloc(filename_len);
-        log_d("filename: %c", buf);
-        if (httpd_req_get_url_query_str(req, buf, filename_len) == ESP_OK)
-        {
-            if (httpd_query_key_value(buf, "filename", filename, sizeof(filename)) == ESP_OK)
-            {
-                free(buf);
-
-                fs::FS &fs = SD;
-                String filePath = "/" + String(filename);
-                log_d("Download file path: %s", filePath.c_str());
-                File file = fs.open(filePath);
-                if (!file)
-                {
-                    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
-                    return ESP_FAIL;
-                }
-
-                httpd_resp_set_type(req, "application/octet-stream");
-                httpd_resp_set_hdr(req, "Content-Disposition", ("attachment; filename=" + String(filename)).c_str());
-                httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
-
-                const size_t bufferSize = 512;
-                uint8_t buffer[bufferSize];
-                size_t bytesRead;
-
-                while ((bytesRead = file.read(buffer, sizeof(buffer))) > 0)
-                {
-                    if (httpd_resp_send_chunk(req, (const char *)buffer, bytesRead) != ESP_OK)
-                    {
-                        file.close();
-                        httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "File download failed");
-                        return ESP_FAIL;
-                    }
-                }
-
-                file.close();
-                httpd_resp_send_chunk(req, NULL, 0); // Send the last chunk to close the stream
-                return ESP_OK;
-            }
-        }
+    if (httpd_query_key_value(buf, "reg", _reg, sizeof(_reg)) != ESP_OK ||
+        httpd_query_key_value(buf, "mask", _mask, sizeof(_mask)) != ESP_OK ||
+        httpd_query_key_value(buf, "val", _val, sizeof(_val)) != ESP_OK) {
         free(buf);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+    free(buf);
+
+    int reg = atoi(_reg);
+    int mask = atoi(_mask);
+    int val = atoi(_val);
+    log_i("Set Register: reg: 0x%02x, mask: 0x%02x, value: 0x%02x", reg, mask, val);
+
+    sensor_t *s = esp_camera_sensor_get();
+    int res = s->set_reg(s, reg, mask, val);
+    if (res) {
+        return httpd_resp_send_500(req);
     }
 
-    httpd_resp_send_err(req, HTTPD_400_BAD_REQUEST, "Invalid request");
-    return ESP_FAIL;
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, NULL, 0);
 }
 
-static esp_err_t files_handler(httpd_req_t *req)
+static esp_err_t greg_handler(httpd_req_t *req)
 {
-    // Scanning files on the SD card
-    fs::FS &fs = SD;
-    File file = fs.open(indexFileName);
-    if (!file)
-    {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "File not found");
+    char *buf = NULL;
+    char _reg[32];
+    char _mask[32];
+
+    if (parse_get(req, &buf) != ESP_OK) {
+        return ESP_FAIL;
+    }
+    if (httpd_query_key_value(buf, "reg", _reg, sizeof(_reg)) != ESP_OK ||
+        httpd_query_key_value(buf, "mask", _mask, sizeof(_mask)) != ESP_OK) {
+        free(buf);
+        httpd_resp_send_404(req);
+        return ESP_FAIL;
+    }
+    free(buf);
+
+    int reg = atoi(_reg);
+    int mask = atoi(_mask);
+    sensor_t *s = esp_camera_sensor_get();
+    int res = s->get_reg(s, reg, mask);
+    if (res < 0) {
+        return httpd_resp_send_500(req);
+    }
+    log_i("Get Register: reg: 0x%02x, mask: 0x%02x, value: 0x%02x", reg, mask, res);
+
+    char buffer[20];
+    const char * val = itoa(res, buffer, 10);
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, val, strlen(val));
+}
+
+static int parse_get_var(char *buf, const char * key, int def)
+{
+    char _int[16];
+    if(httpd_query_key_value(buf, key, _int, sizeof(_int)) != ESP_OK){
+        return def;
+    }
+    return atoi(_int);
+}
+
+static esp_err_t pll_handler(httpd_req_t *req)
+{
+    char *buf = NULL;
+
+    if (parse_get(req, &buf) != ESP_OK) {
         return ESP_FAIL;
     }
 
-    httpd_resp_set_type(req, "text/plain");
-    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    int bypass = parse_get_var(buf, "bypass", 0);
+    int mul = parse_get_var(buf, "mul", 0);
+    int sys = parse_get_var(buf, "sys", 0);
+    int root = parse_get_var(buf, "root", 0);
+    int pre = parse_get_var(buf, "pre", 0);
+    int seld5 = parse_get_var(buf, "seld5", 0);
+    int pclken = parse_get_var(buf, "pclken", 0);
+    int pclk = parse_get_var(buf, "pclk", 0);
+    free(buf);
 
-    const size_t bufferSize = 512;
-    uint8_t buffer[bufferSize];
-    size_t bytesRead;
-
-    while ((bytesRead = file.read(buffer, sizeof(buffer))) > 0)
-    {
-        if (httpd_resp_send_chunk(req, (const char *)buffer, bytesRead) != ESP_OK)
-        {
-            file.close();
-            httpd_resp_send_err(req, HTTPD_500_INTERNAL_SERVER_ERROR, "File streaming failed");
-            return ESP_FAIL;
-        }
+    log_i("Set Pll: bypass: %d, mul: %d, sys: %d, root: %d, pre: %d, seld5: %d, pclken: %d, pclk: %d", bypass, mul, sys, root, pre, seld5, pclken, pclk);
+    sensor_t *s = esp_camera_sensor_get();
+    int res = s->set_pll(s, bypass, mul, sys, root, pre, seld5, pclken, pclk);
+    if (res) {
+        return httpd_resp_send_500(req);
     }
 
-    file.close();
-    httpd_resp_send_chunk(req, NULL, 0); // Send the last chunk to close the stream
-    return ESP_OK;
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, NULL, 0);
+}
+
+static esp_err_t win_handler(httpd_req_t *req)
+{
+    char *buf = NULL;
+
+    if (parse_get(req, &buf) != ESP_OK) {
+        return ESP_FAIL;
+    }
+
+    int startX = parse_get_var(buf, "sx", 0);
+    int startY = parse_get_var(buf, "sy", 0);
+    int endX = parse_get_var(buf, "ex", 0);
+    int endY = parse_get_var(buf, "ey", 0);
+    int offsetX = parse_get_var(buf, "offx", 0);
+    int offsetY = parse_get_var(buf, "offy", 0);
+    int totalX = parse_get_var(buf, "tx", 0);
+    int totalY = parse_get_var(buf, "ty", 0);
+    int outputX = parse_get_var(buf, "ox", 0);
+    int outputY = parse_get_var(buf, "oy", 0);
+    bool scale = parse_get_var(buf, "scale", 0) == 1;
+    bool binning = parse_get_var(buf, "binning", 0) == 1;
+    free(buf);
+
+    log_i("Set Window: Start: %d %d, End: %d %d, Offset: %d %d, Total: %d %d, Output: %d %d, Scale: %u, Binning: %u", startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+    sensor_t *s = esp_camera_sensor_get();
+    int res = s->set_res_raw(s, startX, startY, endX, endY, offsetX, offsetY, totalX, totalY, outputX, outputY, scale, binning);
+    if (res) {
+        return httpd_resp_send_500(req);
+    }
+
+    httpd_resp_set_hdr(req, "Access-Control-Allow-Origin", "*");
+    return httpd_resp_send(req, NULL, 0);
 }
 
 static esp_err_t index_handler(httpd_req_t *req)
 {
-    char *buf;
-    size_t buf_len;
-    char view[32] = {
-        0,
-    };
-
-    // See if we have a specific target (full/simple/portal) and serve as appropriate
-    buf_len = httpd_req_get_url_query_len(req) + 1;
-    if (buf_len > 1)
-    {
-        buf = (char *)malloc(buf_len);
-        if (!buf)
-        {
-            httpd_resp_send_500(req);
-            return ESP_FAIL;
-        }
-        if (httpd_req_get_url_query_str(req, buf, buf_len) == ESP_OK)
-        {
-            if (httpd_query_key_value(buf, "view", view, sizeof(view)) == ESP_OK)
-            {
-            }
-            else
-            {
-                free(buf);
-                httpd_resp_send_404(req);
-                return ESP_FAIL;
-            }
-        }
-        else
-        {
-            free(buf);
-            httpd_resp_send_404(req);
-            return ESP_FAIL;
-        }
-        free(buf);
-    }
-    else
-    {
-        // no target specified; default.
-        strcpy(view, default_index);
-    }
-
-    if (strncmp(view, "simple", sizeof(view)) == 0)
-    {
-        Serial.println("Simple index page requested");
-        if (critERR.length() > 0)
-            return error_handler(req);
-        httpd_resp_set_type(req, "text/html");
-        httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-        return httpd_resp_send(req, (const char *)index_simple_html, index_simple_html_len);
-    }
-    else if (strncmp(view, "full", sizeof(view)) == 0)
-    {
-        Serial.println("Full index page requested");
-        if (critERR.length() > 0)
-            return error_handler(req);
-        httpd_resp_set_type(req, "text/html");
-        httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-        if (sensorPID == OV3660_PID)
-        {
-            return httpd_resp_send(req, (const char *)index_ov3660_html, index_ov3660_html_len);
-        }
-        return httpd_resp_send(req, (const char *)index_ov2640_html, index_ov2640_html_len);
-    }
-    else if (strncmp(view, "portal", sizeof(view)) == 0)
-    {
-        // Prototype captive portal landing page.
-        Serial.println("Portal page requested");
-        std::string s(portal_html);
-        size_t index;
-        while ((index = s.find("<APPURL>")) != std::string::npos)
-            s.replace(index, strlen("<APPURL>"), httpURL);
-        while ((index = s.find("<STREAMURL>")) != std::string::npos)
-            s.replace(index, strlen("<STREAMURL>"), streamURL);
-        while ((index = s.find("<CAMNAME>")) != std::string::npos)
-            s.replace(index, strlen("<CAMNAME>"), myName);
-        httpd_resp_set_type(req, "text/html");
-        httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-        return httpd_resp_send(req, (const char *)s.c_str(), s.length());
-    }
-    else
-    {
-        Serial.print("Unknown page requested: ");
-        Serial.println(view);
-        httpd_resp_send_404(req);
-        return ESP_FAIL;
-    }
-}
-
-static esp_err_t gallery_handler(httpd_req_t *req)
-{
-    Serial.println("Gallery index page requested");
     httpd_resp_set_type(req, "text/html");
-    httpd_resp_set_hdr(req, "Content-Encoding", "identity");
-    return httpd_resp_send(req, (const char *)index_gallery_html, index_gallery_html_len);
+    httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
+    sensor_t *s = esp_camera_sensor_get();
+    if (s != NULL) {
+        if (s->id.PID == OV3660_PID) {
+            return httpd_resp_send(req, (const char *)index_ov3660_html_gz, index_ov3660_html_gz_len);
+        } else if (s->id.PID == OV5640_PID) {
+            return httpd_resp_send(req, (const char *)index_ov5640_html_gz, index_ov5640_html_gz_len);
+        } else {
+            return httpd_resp_send(req, (const char *)index_ov2640_html_gz, index_ov2640_html_gz_len);
+        }
+    } else {
+        log_e("Camera sensor not found");
+        return httpd_resp_send_500(req);
+    }
 }
 
-void startCameraServer(int hPort, int sPort)
+void startCameraServer()
 {
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
-    config.max_uri_handlers = 20; // we use more than the default 8 (on port 80)
+    config.max_uri_handlers = 16;
 
     httpd_uri_t index_uri = {
         .uri = "/",
         .method = HTTP_GET,
         .handler = index_handler,
-        .user_ctx = NULL};
-    httpd_uri_t index_gallery_html_uri = {
-        .uri = "/gallery",
-        .method = HTTP_GET,
-        .handler = gallery_handler,
-        .user_ctx = NULL};
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
     httpd_uri_t status_uri = {
         .uri = "/status",
         .method = HTTP_GET,
         .handler = status_handler,
-        .user_ctx = NULL};
-    httpd_uri_t mac_uri = {
-        .uri = "/mac",
-        .method = HTTP_GET,
-        .handler = mac_handler,
-        .user_ctx = NULL};
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
     httpd_uri_t cmd_uri = {
         .uri = "/control",
         .method = HTTP_GET,
         .handler = cmd_handler,
-        .user_ctx = NULL};
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
     httpd_uri_t capture_uri = {
         .uri = "/capture",
         .method = HTTP_GET,
         .handler = capture_handler,
-        .user_ctx = NULL};
-    httpd_uri_t bitmap_uri = {
-        .uri = "/bitmap",
-        .method = HTTP_GET,
-        .handler = bitmap_handler,
-        .user_ctx = NULL};
-    httpd_uri_t style_uri = {
-        .uri = "/style.css",
-        .method = HTTP_GET,
-        .handler = style_handler,
-        .user_ctx = NULL};
-    httpd_uri_t favicon_16x16_uri = {
-        .uri = "/favicon-16x16.png",
-        .method = HTTP_GET,
-        .handler = favicon_16x16_handler,
-        .user_ctx = NULL};
-    httpd_uri_t favicon_32x32_uri = {
-        .uri = "/favicon-32x32.png",
-        .method = HTTP_GET,
-        .handler = favicon_32x32_handler,
-        .user_ctx = NULL};
-    httpd_uri_t favicon_ico_uri = {
-        .uri = "/favicon.ico",
-        .method = HTTP_GET,
-        .handler = favicon_ico_handler,
-        .user_ctx = NULL};
-    httpd_uri_t logo_svg_uri = {
-        .uri = "/logo.svg",
-        .method = HTTP_GET,
-        .handler = logo_svg_handler,
-        .user_ctx = NULL};
-    httpd_uri_t dump_uri = {
-        .uri = "/dump",
-        .method = HTTP_GET,
-        .handler = dump_handler,
-        .user_ctx = NULL};
-    httpd_uri_t stop_uri = {
-        .uri = "/stop",
-        .method = HTTP_GET,
-        .handler = stop_handler,
-        .user_ctx = NULL};
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
     httpd_uri_t stream_uri = {
-        .uri = "/",
+        .uri = "/stream",
         .method = HTTP_GET,
         .handler = stream_handler,
-        .user_ctx = NULL};
-    httpd_uri_t streamviewer_uri = {
-        .uri = "/view",
-        .method = HTTP_GET,
-        .handler = streamviewer_handler,
-        .user_ctx = NULL};
-    httpd_uri_t info_uri = {
-        .uri = "/info",
-        .method = HTTP_GET,
-        .handler = info_handler,
-        .user_ctx = NULL};
-    httpd_uri_t error_uri = {
-        .uri = "/",
-        .method = HTTP_GET,
-        .handler = error_handler,
-        .user_ctx = NULL};
-    httpd_uri_t viewerror_uri = {
-        .uri = "/view",
-        .method = HTTP_GET,
-        .handler = error_handler,
-        .user_ctx = NULL};
-    httpd_uri_t files_uri = {
-        .uri = "/files",
-        .method = HTTP_GET,
-        .handler = files_handler,
-        .user_ctx = NULL};
-    httpd_uri_t downloadfile_uri = {
-        .uri = "/downloadfile",
-        .method = HTTP_GET,
-        .handler = downloadfile_handler,
-        .user_ctx = NULL};
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
 
-    // Request Handlers; config.max_uri_handlers (above) must be >= the number of handlers
-    config.server_port = hPort;
-    config.ctrl_port = hPort;
-    // Serial.printf("Starting web server on port: '%d'\r\n", config.server_port);
+    httpd_uri_t bmp_uri = {
+        .uri = "/bmp",
+        .method = HTTP_GET,
+        .handler = bmp_handler,
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
+    httpd_uri_t xclk_uri = {
+        .uri = "/xclk",
+        .method = HTTP_GET,
+        .handler = xclk_handler,
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
+    httpd_uri_t reg_uri = {
+        .uri = "/reg",
+        .method = HTTP_GET,
+        .handler = reg_handler,
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
+    httpd_uri_t greg_uri = {
+        .uri = "/greg",
+        .method = HTTP_GET,
+        .handler = greg_handler,
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
+    httpd_uri_t pll_uri = {
+        .uri = "/pll",
+        .method = HTTP_GET,
+        .handler = pll_handler,
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
+    httpd_uri_t win_uri = {
+        .uri = "/resolution",
+        .method = HTTP_GET,
+        .handler = win_handler,
+        .user_ctx = NULL
+#ifdef CONFIG_HTTPD_WS_SUPPORT
+        ,
+        .is_websocket = true,
+        .handle_ws_control_frames = false,
+        .supported_subprotocol = NULL
+#endif
+    };
+
+    ra_filter_init(&ra_filter, 20);
+
+#if CONFIG_ESP_FACE_RECOGNITION_ENABLED
+    recognizer.set_partition(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY, "fr");
+
+    // load ids from flash partition
+    recognizer.set_ids_from_flash();
+#endif
+    log_i("Starting web server on port: '%d'", config.server_port);
     if (httpd_start(&camera_httpd, &config) == ESP_OK)
     {
-        if (critERR.length() > 0)
-        {
-            httpd_register_uri_handler(camera_httpd, &error_uri);
-        }
-        else
-        {
-            httpd_register_uri_handler(camera_httpd, &index_uri);
-            httpd_register_uri_handler(camera_httpd, &cmd_uri);
-            httpd_register_uri_handler(camera_httpd, &status_uri);
-            httpd_register_uri_handler(camera_httpd, &capture_uri);
-            httpd_register_uri_handler(camera_httpd, &index_gallery_html_uri);
-        }
+        httpd_register_uri_handler(camera_httpd, &index_uri);
+        httpd_register_uri_handler(camera_httpd, &cmd_uri);
+        httpd_register_uri_handler(camera_httpd, &status_uri);
+        httpd_register_uri_handler(camera_httpd, &capture_uri);
+        httpd_register_uri_handler(camera_httpd, &bmp_uri);
 
-        httpd_register_uri_handler(camera_httpd, &style_uri);
-        httpd_register_uri_handler(camera_httpd, &favicon_16x16_uri);
-        httpd_register_uri_handler(camera_httpd, &favicon_32x32_uri);
-        httpd_register_uri_handler(camera_httpd, &favicon_ico_uri);
-        httpd_register_uri_handler(camera_httpd, &logo_svg_uri);
-        httpd_register_uri_handler(camera_httpd, &dump_uri);
-        httpd_register_uri_handler(camera_httpd, &stop_uri);
-        httpd_register_uri_handler(camera_httpd, &mac_uri);
-        httpd_register_uri_handler(camera_httpd, &files_uri);
-        httpd_register_uri_handler(camera_httpd, &downloadfile_uri);
+        httpd_register_uri_handler(camera_httpd, &xclk_uri);
+        httpd_register_uri_handler(camera_httpd, &reg_uri);
+        httpd_register_uri_handler(camera_httpd, &greg_uri);
+        httpd_register_uri_handler(camera_httpd, &pll_uri);
+        httpd_register_uri_handler(camera_httpd, &win_uri);
     }
 
-    config.server_port = sPort;
-    config.ctrl_port = sPort;
-    // Serial.printf("Starting stream server on port: '%d'\r\n", config.server_port);
+    config.server_port += 1;
+    config.ctrl_port += 1;
+    log_i("Starting stream server on port: '%d'", config.server_port);
     if (httpd_start(&stream_httpd, &config) == ESP_OK)
     {
-        if (critERR.length() > 0)
-        {
-            httpd_register_uri_handler(camera_httpd, &error_uri);
-            httpd_register_uri_handler(camera_httpd, &viewerror_uri);
-        }
-        else
-        {
-            httpd_register_uri_handler(stream_httpd, &stream_uri);
-            httpd_register_uri_handler(stream_httpd, &info_uri);
-            httpd_register_uri_handler(stream_httpd, &streamviewer_uri);
-        }
-        httpd_register_uri_handler(stream_httpd, &favicon_16x16_uri);
-        httpd_register_uri_handler(stream_httpd, &favicon_32x32_uri);
-        httpd_register_uri_handler(stream_httpd, &favicon_ico_uri);
+        httpd_register_uri_handler(stream_httpd, &stream_uri);
     }
 }
 
-int autoFocus(int minPos, int maxPos, int focusStep)
+void setupLedFlash(int pin) 
 {
-    if (isAutofocusMotorized)
-    {
-
-        int maxFocusValue = 0;
-
-        // Move to start position
-        int bestPosition = minPos;
-        int range = maxPos - minPos;
-        moveFocusRelative(minPos, false);
-
-        // Scan through range and measure focus quality
-        int lastFBSize = 0;
-        int focusValue = 0;
-        for (int iFocus = 0; iFocus <= range / focusStep; iFocus++)
-        {
-            if (iFocus > 0)
-                moveFocusRelative(focusStep, false);
-            // Pause the stream for a moment
-            IS_STREAM_PAUSE = true;
-
-            // wait until stream pauses
-            while (IS_STREAMING)
-            {
-                delay(10);
-            }
-
-            for (int iFrame = 0; iFrame < 100; iFrame++)
-            {
-                // Capture image and get the focus quality
-                camera_fb_t *fb = esp_camera_fb_get();
-                if (!fb)
-                {
-                    Serial.println("Camera capture failed");
-                    return -1;
-                }
-
-                focusValue = fb->len;
-                esp_camera_fb_return(fb);
-                if (focusValue != lastFBSize)
-                { // sometmies the same image is returned twice..not sure why..
-                    break;
-                }
-                else
-                {
-                    focusValue = -1;
-                }
-            }
-            IS_STREAM_PAUSE = false;
-            Serial.println("Focus value; " + String(focusValue) + "; at position; " + String(minPos + iFocus * focusStep) + "; of " + String(range) + "");
-            lastFBSize = focusValue;
-            // Check if this focus is better than previous best
-            if (focusValue > maxFocusValue)
-            {
-                maxFocusValue = focusValue;
-                bestPosition = iFocus * focusStep;
-            }
-        }
-
-        // Move back to best position
-        moveFocusRelative(-range, false);
-        delay(1000);
-        moveFocusRelative(bestPosition, false);
-        Serial.println("Autofocus complete. Best position: " + String(bestPosition));
-        return bestPosition;
-    }
-    else
-    {
-        // This is for voice-coil based autofocus
-        int maxFocusValue = 0;
-        int bestPosition = 0;
-        int range = maxPos - minPos;
-        int lastFBSize = 0;
-        int focusValue = 0;
-
-        // Scan through range and measure focus quality
-        for (int i = 0; i <= range / focusStep; i++)
-        {
-            log_i("Autofocus: %d", i);
-            setPWM(minPos + i * focusStep);
-            delay(20);
-            // Pause the stream for a moment
-            IS_STREAM_PAUSE = true;
-
-            // wait until stream pauses
-            while (IS_STREAMING)
-            {
-                delay(10);
-            }
-
-            // Capture image and get the focus quality
-            for (int j = 0; j < 5; j++)
-            {
-                camera_fb_t *fb = esp_camera_fb_get();
-                if (!fb)
-                {
-                    Serial.println("Camera capture failed");
-                    return -1;
-                }
-
-                focusValue = fb->len;
-                esp_camera_fb_return(fb);
-                if (focusValue != lastFBSize)
-                {
-                    break;
-                }
-            }
-            IS_STREAM_PAUSE = false;
-            lastFBSize = focusValue;
-            Serial.println("Focus value: " + String(focusValue) + " at position " + String(minPos + i * focusStep) + " of " + String(range) + "");
-            // Check if this focus is better than previous best
-            if (focusValue > maxFocusValue)
-            {
-                maxFocusValue = focusValue;
-                bestPosition = i;
-            }
-        }
-
-        // Move back to best position
-        setPWM(minPos + bestPosition * focusStep);
-        Serial.println("Autofocus complete. Best position: " + String(bestPosition));
-        return bestPosition;
-    }
-}
-
-bool saveImage(String filename, int pwmVal)
-{
-    // Pause the stream for a moment
-    IS_STREAM_PAUSE = true;
-
-    // wait until stream pauses
-    while (IS_STREAMING)
-    {
-        delay(10);
-    }
- 
-    // set PWM value e.g.
-    if (pwmVal > -1)
-    {
-        setPWM(pwmVal);
-    }
-
-    bool res = false;
-    // TODO: We need to stop the stream here!
-    if (sdInitialized)
-    { // Do not attempt to save anything to a non-existig SD card
-
-        camera_fb_t *fb = NULL;
-
-        Serial.println("Capture Requested for SD card save");
-        int64_t fr_start = esp_timer_get_time();
-
-        fb = esp_camera_fb_get();
-        if (!fb)
-        {
-            Serial.println("CAPTURE: failed to acquire frame");
-            res = false;
-            esp_camera_fb_return(fb);
-            fb = NULL;
-            return res;
-        }
-
-        size_t fb_len = 0;
-        if (fb->format == PIXFORMAT_JPEG)
-        {
-            fb_len = fb->len;
-            res = true;
-        }
-        else
-        {
-            res = false;
-            Serial.println("Capture Error: Non-JPEG image returned by camera module");
-        }
-
-        int64_t fr_end = esp_timer_get_time();
-
-        // Save image to disk
-        // https://github.com/limengdu/SeeedStudio-XIAO-ESP32S3-Sense-camera/blob/56580ab8e438d82a91fcbe47a8412cf9d29a6b76/take_photos/take_photos.ino#L33
-        fs::FS &fs = SD;
-        String extension = ".jpg";
-        File imgFile = fs.open((filename + extension).c_str(), FILE_WRITE);
-        if (!imgFile)
-        {
-            Serial.println("SD: Failed to open file in writing mode");
-            // reset frame buffer
-            esp_camera_fb_return(fb);
-            fb = NULL;
-            // Resume the stream
-            IS_STREAM_PAUSE = false;
-            return false;
-        }
-        else
-        {
-            imgFile.write(fb->buf, fb->len);
-            Serial.println("Saved " + filename);
-        }
-        imgFile.close();
-
-        File indexFile;
-        if (!fs.exists(indexFileName))
-        {
-            // create index file
-            log_d("Creating %s", indexFileName);
-            indexFile = fs.open(indexFileName, FILE_WRITE);
-        }
-        else
-        {
-            log_d("Appending to %s", indexFileName);
-            indexFile = fs.open(indexFileName, FILE_APPEND);
-        }
-
-        // Append a string to the file
-        log_d("Writing to index.txt - %s", filename + extension);
-        indexFile.println(filename);
-        indexFile.close();
-
-        // reset frame buffer
-        esp_camera_fb_return(fb);
-        fb = NULL;
-
-    }
-    else
-    {
-        res = false;
-    }
-
-    // Resume the stream
-    IS_STREAM_PAUSE = false;
-
-    return res;
-}
-
-/*
-
-Image Processing
-
-
-*/
-
-camera_fb_t *convolution(camera_fb_t *input)
-{
-    // Create a new dummy frame buffer for the result
-
-    int FRAME_WIDTH = input->width;
-    int FRAME_HEIGHT = input->height;
-    size_t frame_size = FRAME_WIDTH * FRAME_HEIGHT * 3; // Assuming pixel format is PIXFORMAT_RGB565
-
-    camera_fb_t *frame_buffer = (camera_fb_t *)malloc(sizeof(camera_fb_t));
-    if (!frame_buffer)
-    {
-        log_e("Failed to allocate frame buffer");
-        return NULL;
-    }
-
-    frame_buffer->width = FRAME_WIDTH;
-    frame_buffer->height = FRAME_HEIGHT;
-    frame_buffer->len = frame_size;
-    frame_buffer->buf = (uint8_t *)malloc(frame_size);
-    if (!frame_buffer->buf)
-    {
-        log_e("Failed to allocate frame buffer memory");
-        free(frame_buffer);
-        return NULL;
-    }
-
-    // Set the result frame buffer parameters
-    frame_buffer->width = input->width;
-    frame_buffer->height = input->height;
-    frame_buffer->len = input->len;
-    frame_buffer->format = input->format;
-    frame_buffer->buf = new uint8_t[frame_buffer->len];
-
-    // Perform convolution on each pixel of the input frame buffer
-    int kernelSize = 7;
-    float kernel[kernelSize][kernelSize] = {
-        {0.0009, 0.0060, 0.0217, 0.0447, 0.0217, 0.0060, 0.0009},
-        {0.0060, 0.0401, 0.1466, 0.3040, 0.1466, 0.0401, 0.0060},
-        {0.0217, 0.1466, 0.5352, 1.1065, 0.5352, 0.1466, 0.0217},
-        {0.0447, 0.3040, 1.1065, 2.2945, 1.1065, 0.3040, 0.0447},
-        {0.0217, 0.1466, 0.5352, 1.1065, 0.5352, 0.1466, 0.0217},
-        {0.0060, 0.0401, 0.1466, 0.3040, 0.1466, 0.0401, 0.0060},
-        {0.0009, 0.0060, 0.0217, 0.0447, 0.0217, 0.0060, 0.0009}};
-
-    for (int y = kernelSize / 2; y < input->height - kernelSize / 2; y++)
-    {
-        for (int x = kernelSize / 2; x < input->width - kernelSize / 2; x++)
-        {
-            float sum = 0;
-
-            // Apply the convolution kernel to the pixel neighborhood
-            for (int ky = 0; ky < kernelSize; ky++)
-            {
-                for (int kx = 0; kx < kernelSize; kx++)
-                {
-                    int pixel = input->buf[(y + ky - kernelSize / 2) * input->width + (x + kx - kernelSize / 2)];
-                    sum += kernel[ky][kx] * pixel;
-                }
-            }
-
-            // Ensure the pixel value is within the valid range
-            sum = min(max(sum, (float)0.), (float)255.);
-
-            // Set the convolved pixel value in the result frame buffer
-            frame_buffer->buf[y * input->width + x] = sum;
-        }
-    }
-
-    return frame_buffer;
+    #if CONFIG_LED_ILLUMINATOR_ENABLED
+    ledcSetup(LED_LEDC_CHANNEL, 5000, 8);
+    ledcAttachPin(pin, LED_LEDC_CHANNEL);
+    #else
+    log_i("LED flash is disabled -> CONFIG_LED_ILLUMINATOR_ENABLED = 0");
+    #endif
 }
