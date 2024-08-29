@@ -95,7 +95,7 @@ extern int pwmresolution;
 bool IS_STREAM_PAUSE = false;
 
 extern int timelapseInterval;
-extern int autofocusInterval;
+
 const char *indexFileName = "/index.txt";
 typedef struct
 {
@@ -589,13 +589,6 @@ static esp_err_t cmd_handler(httpd_req_t *req)
         timelapseInterval = val;
         setTimelapseInterval(SPIFFS, timelapseInterval);
     }
-    else if (!strcmp(variable, "autofocusInterval"))
-    {
-        Serial.print("Changing autofocus interval to: ");
-        Serial.println(val);
-        autofocusInterval = val;
-        setAutofocusInterval(SPIFFS, autofocusInterval);
-    }
     else if (!strcmp(variable, "save_prefs"))
     {
         if (filesystem)
@@ -712,7 +705,6 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"isTimelapse\":\"%u\",", isTimelapse);
         p += sprintf(p, "\"focusSlider\":\"%d\",", 1);
         p += sprintf(p, "\"timelapseInterval\":\"%d\",", timelapseInterval);
-        p += sprintf(p, "\"autofocusInterval\":\"%d\"", autofocusInterval);
     }
     *p++ = '}';
     *p++ = 0;

@@ -28,6 +28,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
         <label for="nav-toggle-cb" id="nav-toggle" style="float:left;">&#9776;&nbsp;&nbsp;Settings&nbsp;&nbsp;&nbsp;&nbsp;</label>
         <button id="swap-viewer" style="float:left;" title="Swap to simple viewer">Simple</button>
         <button id="get-still" style="float:left;">Get Still</button>
+        <button id="send-github" style="float:left;">To GitHub</button>
         <img alt="ImJoy" src="https://ij.imjoy.io/assets/badge/open-in-imagej-js-badge.svg" style="float:left;" /></a></span>
         <button id="send-imjoy" style="float:left;">To ImJoy</button>
         <button id="toggle-stream" style="float:left;" class="hidden">Start Stream</button>
@@ -281,8 +282,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
               <div class="input-group" id="preferences-group">
                 <label for="prefs" style="line-height: 2em;">Preferences</label>
                 <button id="reboot" title="Reboot the camera module">Reboot</button>
-                <button id="save_prefs" title="Save Preferences on camera module">Save</button>
-                <button id="clear_prefs" title="Erase saved Preferences on camera module">Erase</button>
               </div>
               <div class="input-group" id="focus-group">
                 <label for="FocusSettings" style="line-height: 2em;">Move Focus</label>
@@ -308,7 +307,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
               </div>
               <div class="input-group" id="sd_card-group">
                 <label for="sd_card">
-                <a href="/dump" title="System Info" target="_blank">Name</a></label>
+                <a href="/dump" title="System Info" target="_blank">SD Card status:</a></label>
                 <div id="sd_card" class="default-action"></div>
               </div>
               <div class="input-group" id="images_served-group">
@@ -370,9 +369,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const streamLink = document.getElementById('stream_link')
     const framesize = document.getElementById('framesize')
     const xclk = document.getElementById('xclk')
-    const mSSID = document.getElementById('ssid')
-    const mPassword = document.getElementById('password')
-    const confirmWifi = document.getElementById('mWifiConfirm')
     const focusUp = document.getElementById('mFocusUp')
     const focusDown = document.getElementById('mFocusDown')
     const autoFocus = document.getElementById('mAutoFocus')
@@ -384,8 +380,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
     const stopPump = document.getElementById('stopPump');
 
     const swapButton = document.getElementById('swap-viewer')
-    const writePrefsToSSpiffsButton = document.getElementById('save_prefs')
-    const clearPrefsButton = document.getElementById('clear_prefs')
     const rebootButton = document.getElementById('reboot')
     const minFrameTime = document.getElementById('min_frame_time')
 
@@ -448,11 +442,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
           }
           } 
           else if(el.id === "timelapseInterval"){
-          if (value == -1) {
-            hide(timelapseintervalGroup)
-          } else {
             show(timelapseintervalGroup)
-          }
         }
          else if(el.id === "cam_name"){
           camName.innerHTML = value;
@@ -729,7 +719,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       valTimelapseLabel = document.getElementById('valTimelapse')
       valTimelapseLabel.innerHTML = timelapseInterval.value;
     }
-    
+
 
     xclk.onchange = () => {
       console.log("xclk:" , xclk);
@@ -740,24 +730,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       window.open('/?view=simple','_self');
     }
 
-    writePrefsToSSpiffsButton.onclick = () => {
-      if (confirm("Save the current preferences?")) {
-        updateConfig(writePrefsToSSpiffsButton);
-      }
-    }
-
-    clearPrefsButton.onclick = () => {
-      if (confirm("Remove the saved preferences?")) {
-        updateConfig(clearPrefsButton);
-      }
-    }
-
-    confirmWifi.onclick = () => {
-      if (confirm("Want to update SSID/Password? Please hit the reboot button to connect to the Wifi.")) {
-        updateConfig(mSSID);
-        updateConfig(mPassword);
-      }
-    }
     focusUp.onclick = () => {
       updateConfig(focusUp);
     }
@@ -862,10 +834,7 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
           await ij.viewImage(bytes, { name: 'image.jpeg' })
       }
     });
-
-
 </script>
-
 </html>)=====";
 
 size_t index_ov2640_html_len = sizeof(index_ov2640_html)-1;

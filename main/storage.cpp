@@ -10,8 +10,8 @@ extern int xclk;         // Camera module clock speed
 extern int minFrameTime; // Limits framerate
 extern uint32_t frameIndex;
 extern int timelapseInterval;
-extern int autofocusInterval;
 extern bool isTimelapse;
+extern bool sdInitialized;
 
 bool fileOpen = false;  // file-writing switch
 
@@ -156,7 +156,6 @@ void writePrefsToSSpiffs(fs::FS &fs)
   jsonDoc["rotate"] = String(myRotation);
   jsonDoc["frameIndex"] = frameIndex ;
   jsonDoc["timelapseInterval"] = timelapseInterval;
-  jsonDoc["autofocusInterval"] = autofocusInterval;
   jsonDoc["isTimelapse"] = isTimelapse;
   
   // FIXME: ADD ALL THE values from the json document to variabels!
@@ -337,7 +336,10 @@ bool getisTimelapse()
   preferences.begin(groupName, false);
 
   // Load the boolean value
-  int value = preferences.getInt(isTimelapseKey, 0);
+  // only if SD card is mounted
+  int value = preferences.getInt(isTimelapseKey, 0) && sdInitialized;
+  
+  
   // Close the preferences
   preferences.end();
   log_i("getisTimelapse: %i", value);
@@ -470,25 +472,6 @@ void setTimelapseInterval(fs::FS &fs, uint32_t value)
   writeJsonToSSpiffs(mConfig, SPIFFS);
 }
 
-static const char autofocusIntervalKey[] = "autofocusInterval";
-uint32_t getAutofocusInterval(fs::FS &fs)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  if (mConfig.containsKey(autofocusIntervalKey)){
-    log_d("getAutofocusInterval: %i", mConfig[autofocusIntervalKey]);
-    return mConfig[autofocusIntervalKey];
-  }
-  log_d("getAutofocusInterval: %i", 0);
-  return 0;
-}
-
-void setAutofocusInterval(fs::FS &fs, uint32_t value)
-{
-  DynamicJsonDocument mConfig = readPrefs(SPIFFS);
-  mConfig[autofocusIntervalKey] = value;
-  writeJsonToSSpiffs(mConfig, SPIFFS);
-  log_d("setAutofocusInterval: %i", value);
-}
 
 static const char pwmvalKey[] = "pwmval";
 uint32_t getPWMVal(fs::FS &fs)

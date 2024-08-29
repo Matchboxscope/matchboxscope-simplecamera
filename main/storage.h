@@ -27,8 +27,6 @@ extern uint32_t getFrameIndex();
 extern void setFrameIndex(int value);
 uint32_t getTimelapseInterval(fs::FS &fs);
 void setTimelapseInterval(fs::FS &fs, uint32_t value);
-uint32_t getAutofocusInterval(fs::FS &fs);
-void setAutofocusInterval(fs::FS &fs, uint32_t value);
 void setCompiledDate(fs::FS &fs);
 bool getisTimelapse();
 void setisTimelapse(bool value);

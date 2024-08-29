@@ -51,9 +51,9 @@ unsigned long xclk = 20;
 int myRotation = 0;
 int minFrameTime = 0;
 int timelapseInterval = -1;
-int autofocusInterval = 0;
 bool isAutofocusMotorized = true;
 static uint64_t t_old = millis();
+static uint64_t t_blink_old = millis();
 bool sendToGithubFlag = false;
 uint32_t frameIndex = 0;
 
@@ -172,7 +172,6 @@ void setup()
     // Start the camera server
     startCameraServer(HTTP_PORT, STREAM_PORT);
 
-    
     // Print ready message
     if (critERR.length() == 0)
     {
@@ -188,8 +187,14 @@ void setup()
 
 void loop()
 {
+    // If timelapse is enabled and sd card is initialized toggle led every second
+    if (sdInitialized && isTimelapse && timelapseInterval > 0 && ((millis() - t_blink_old) > 1000))
+    {
+        digitalWrite(13, !digitalRead(13));
+        t_blink_old = millis();
+    }
     // Timelapse Imaging
-    if (isTimelapse && timelapseInterval > 0 && ((millis() - t_old) > (1000 * timelapseInterval)))
+    if (sdInitialized && isTimelapse && timelapseInterval > 0 && ((millis() - t_old) > (1000 * timelapseInterval)))
     {
         log_i("Taking an Image");
         writePrefsToSSpiffs(SPIFFS);
@@ -243,7 +248,7 @@ void initWifi(String countryCode)
 
     // Set country code
     if (countryCode == "CN")
-    {   
+    {
         log_i("Setting WiFi country to China (CN)");
         wifi_country_t my_country = {
             cc : "CN",
@@ -272,7 +277,7 @@ void initWifi(String countryCode)
     WiFi.onEvent(debugWifiEvent, ARDUINO_EVENT_WIFI_AP_STADISCONNECTED);
     WiFi.onEvent(debugWifiEvent, ARDUINO_EVENT_WIFI_AP_START);
     WiFi.onEvent(debugWifiEvent, ARDUINO_EVENT_WIFI_AP_STOP);
-    
+
     Serial.println("AP started");
     Serial.print("SSID: ");
     Serial.println(ssid);
@@ -288,13 +293,12 @@ void onNewStationConnected(WiFiEvent_t event, WiFiEventInfo_t info)
     httpClient.setBaseURL(baseURL);
 }
 
-
 void debugWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info)
 {
     Serial.print("WiFi Event: ");
     Serial.println(event);
     Serial.print("Info: ");
-    //Serial.println(info);
+    // Serial.println(info);
 }
 
 void calcURLs()
@@ -453,6 +457,8 @@ void initSDCard()
             {
                 Serial.println("UNKNOWN");
             }
+            // indicate that the SD card is available
+            ledcWrite(lampChannel, 255);
         }
     }
 }
@@ -461,7 +467,6 @@ void loadSettings()
 {
     imagesServed = getFrameIndex();
     timelapseInterval = getTimelapseInterval(SPIFFS);
-    autofocusInterval = getAutofocusInterval(SPIFFS);
     isTimelapse = getisTimelapse();
     ledcSetup(lampChannel, pwmfreq, pwmresolution);
     ledcAttachPin(LAMP_PIN, lampChannel);
