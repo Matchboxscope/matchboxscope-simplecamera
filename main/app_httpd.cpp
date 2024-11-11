@@ -704,7 +704,7 @@ static esp_err_t status_handler(httpd_req_t *req)
         p += sprintf(p, "\"images_served\":\"%u\",", imagesServed);
         p += sprintf(p, "\"isTimelapse\":\"%u\",", isTimelapse);
         p += sprintf(p, "\"focusSlider\":\"%d\",", 1);
-        p += sprintf(p, "\"timelapseInterval\":\"%d\",", timelapseInterval);
+        p += sprintf(p, "\"timelapseInterval\":\"%d\"", timelapseInterval);
     }
     *p++ = '}';
     *p++ = 0;

@@ -2,7 +2,8 @@
  * primary HTML for the OV2640 camera module
  */
 
-const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
+const uint8_t index_ov2640_html[] = R"=====(
+<!doctype html>
 <html>
   <head>
     <meta charset="utf-8">
@@ -781,9 +782,6 @@ const uint8_t index_ov2640_html[] = R"=====(<!doctype html>
       }
     }
 
-    mSSID.onchange = () => {
-      updateConfig(mSSID);        
-    } 
 
   })
 
