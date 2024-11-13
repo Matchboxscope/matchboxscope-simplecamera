@@ -50,10 +50,10 @@ jobs:
     - name: Merge into one binary (Xiao)
       run: |
         dir .pio/build/seeed_xiao_esp32s3/
-        mv .pio/build/seeed_xiao_esp32s3/*.bin build/
-        cd build
+        cp ./build/boot_app0.bin .pio/build/seeed_xiao_esp32s3/
+        cd .pio/build/seeed_xiao_esp32s3/
         python -m esptool --chip ESP32-S3 merge_bin -o xiao-sense-manifest.bin --flash_mode qio --flash_size 8MB 0x0000 bootloader.bin 0x8000 partitions.bin 0xe000 boot_app0.bin 0x10000 firmware.bin
-
+        
     - uses: actions/upload-artifact@v3
       with:
         name: merged-firmware
